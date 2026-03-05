@@ -47,11 +47,11 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const googleLogin = async (accessToken, userInfo) => {
+    const googleLogin = async (accessToken, userInfo, company, companyCode) => {
         try {
             setError(null);
             setLoading(true);
-            const data = await authService.googleLogin(accessToken, userInfo);
+            const data = await authService.googleLogin(accessToken, userInfo, company, companyCode);
             setUser(data.user);
             return data;
         } catch (err) {

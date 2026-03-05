@@ -73,6 +73,23 @@ export const projectService = {
         const response = await api.post(`/projects/join/${inviteCode}`);
         return response.data;
     },
+
+    // Get current user's role in a project
+    getUserRole: async (projectId) => {
+        const response = await api.get(`/projects/${projectId}/role`);
+        return response.data;
+    },
+
+    // Get all members of a project (owner + members) for assignee dropdown
+    getMembers: async (projectId) => {
+        const response = await api.get(`/projects/${projectId}`);
+        const project = response.data?.data;
+        if (!project) return [];
+        // Return owner + members as a flat list
+        const owner = { ...project.owner, role: 'owner' };
+        const members = (project.members || []).map(m => ({ ...m.user, role: m.role }));
+        return [owner, ...members];
+    },
 };
 
 export default projectService;

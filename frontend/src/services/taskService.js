@@ -74,6 +74,12 @@ export const taskService = {
         const response = await api.patch(`/tasks/${taskId}/sprint`, { sprintId });
         return response.data;
     },
+
+    // Get team progress for a project (admin/owner only)
+    getTeamProgress: async (projectId) => {
+        const response = await api.get(`/tasks/team-progress/${projectId}`);
+        return response.data;
+    },
 };
 
 export default taskService;

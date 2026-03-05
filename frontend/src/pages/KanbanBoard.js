@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';
+import { useAuth } from '../context/AuthContext';
 import taskService from '../services/taskService';
 import projectService from '../services/projectService';
 import './Pages.css';
@@ -13,6 +14,7 @@ const COLUMNS = [
 ];
 
 const KanbanBoard = () => {
+    const { user } = useAuth();
     const [tasks, setTasks] = useState([]);
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState('all');
@@ -22,6 +24,8 @@ const KanbanBoard = () => {
     const [showModal, setShowModal] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [projectRole, setProjectRole] = useState(null); // 'owner', 'admin', 'member', 'viewer'
+    const [projectMembers, setProjectMembers] = useState([]);
     const [formData, setFormData] = useState({
         title: '',
         description: '',
@@ -29,12 +33,52 @@ const KanbanBoard = () => {
         priority: 'medium',
         status: 'todo',
         dueDate: '',
-        storyPoints: 0
+        storyPoints: 0,
+        assignee: ''
     });
+
+    // Check if user is admin/owner (can create, edit, delete, assign tasks)
+    const isProjectAdmin = user?.role === 'admin' || projectRole === 'owner' || projectRole === 'admin';
 
     useEffect(() => {
         fetchData();
     }, []);
+
+    // Fetch the user's role whenever selected project changes
+    useEffect(() => {
+        const fetchRole = async () => {
+            if (selectedProject && selectedProject !== 'all') {
+                try {
+                    const roleRes = await projectService.getUserRole(selectedProject);
+                    setProjectRole(roleRes.data?.role || 'member');
+                } catch (error) {
+                    console.error('Error fetching project role:', error);
+                    setProjectRole('member');
+                }
+            } else {
+                // For 'all' projects, use system role
+                setProjectRole(user?.role === 'admin' ? 'admin' : null);
+            }
+        };
+        fetchRole();
+    }, [selectedProject, user]);
+
+    // Load project members when the project selection in the modal form changes
+    useEffect(() => {
+        const loadMembers = async () => {
+            if (formData.project) {
+                try {
+                    const members = await projectService.getMembers(formData.project);
+                    setProjectMembers(members);
+                } catch {
+                    setProjectMembers([]);
+                }
+            } else {
+                setProjectMembers([]);
+            }
+        };
+        loadMembers();
+    }, [formData.project]);
 
     const fetchData = async () => {
         try {
@@ -113,11 +157,12 @@ const KanbanBoard = () => {
         setFormData({
             title: '',
             description: '',
-            project: projects.length > 0 ? projects[0]._id : '',
+            project: selectedProject !== 'all' ? selectedProject : (projects.length > 0 ? projects[0]._id : ''),
             priority: 'medium',
             status: status,
             dueDate: '',
-            storyPoints: 0
+            storyPoints: 0,
+            assignee: ''
         });
         setShowModal(true);
     };
@@ -131,7 +176,8 @@ const KanbanBoard = () => {
             priority: task.priority,
             status: task.status,
             dueDate: task.dueDate ? task.dueDate.split('T')[0] : '',
-            storyPoints: task.storyPoints || 0
+            storyPoints: task.storyPoints || 0,
+            assignee: task.assignee?._id || task.assignee || ''
         });
         setShowModal(true);
     };
@@ -212,13 +258,20 @@ const KanbanBoard = () => {
                                     </option>
                                 ))}
                             </select>
-                            <button className="btn btn-primary" onClick={() => openCreateModal()}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
-                                New Task
-                            </button>
+                            {selectedProject !== 'all' && projectRole && (
+                                <span className={`role-indicator ${isProjectAdmin ? 'role-admin' : 'role-member'}`}>
+                                    {isProjectAdmin ? '🛡️ Admin' : '👤 Member'}
+                                </span>
+                            )}
+                            {isProjectAdmin && (
+                                <button className="btn btn-primary" onClick={() => openCreateModal()}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    New Task
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -257,7 +310,7 @@ const KanbanBoard = () => {
                                                     draggable
                                                     onDragStart={(e) => handleDragStart(e, task)}
                                                     onDragEnd={handleDragEnd}
-                                                    onClick={() => openEditModal(task)}
+                                                    onClick={() => isProjectAdmin && openEditModal(task)}
                                                 >
                                                     <div className="kanban-card-header">
                                                         <span
@@ -280,33 +333,45 @@ const KanbanBoard = () => {
                                                         >
                                                             {task.project?.name || 'No project'}
                                                         </div>
+                                                        {task.assignee && (
+                                                            <span className="task-assignee" title={`Assigned to ${task.assignee.name}`}>
+                                                                {task.assignee.avatar
+                                                                    ? <img src={task.assignee.avatar} alt={task.assignee.name} style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover' }} />
+                                                                    : <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{task.assignee.name?.charAt(0).toUpperCase()}</span>
+                                                                }
+                                                            </span>
+                                                        )}
                                                         {task.dueDate && (
                                                             <span className="due-date">
                                                                 📅 {new Date(task.dueDate).toLocaleDateString()}
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <button
-                                                        className="delete-card-btn"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDeleteTask(task._id);
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </button>
+                                                    {isProjectAdmin && (
+                                                        <button
+                                                            className="delete-card-btn"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteTask(task._id);
+                                                            }}
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
                                                 </div>
                                             ))}
-                                            <button
-                                                className="add-task-btn"
-                                                onClick={() => openCreateModal(column.id)}
-                                            >
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                                </svg>
-                                                Add Task
-                                            </button>
+                                            {isProjectAdmin && (
+                                                <button
+                                                    className="add-task-btn"
+                                                    onClick={() => openCreateModal(column.id)}
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                                    </svg>
+                                                    Add Task
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -410,6 +475,21 @@ const KanbanBoard = () => {
                                         onChange={(e) => setFormData({ ...formData, storyPoints: parseInt(e.target.value) || 0 })}
                                     />
                                 </div>
+                            </div>
+                            <div className="form-group">
+                                <label>Assign To</label>
+                                <select
+                                    className="input"
+                                    value={formData.assignee}
+                                    onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                                >
+                                    <option value="">— Unassigned —</option>
+                                    {projectMembers.map(member => (
+                                        <option key={member._id} value={member._id}>
+                                            {member.name} {member.role === 'owner' ? '(Owner)' : `(${member.role})`}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={closeModal}>

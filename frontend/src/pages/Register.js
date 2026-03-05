@@ -2,34 +2,55 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
+import authService from '../services/authService';
 import './Auth.css';
 
 const Register = () => {
+    const [mode, setMode] = useState('join'); // 'join' = member via code, 'create' = admin creating company
     const [formData, setFormData] = useState({
         name: '',
         email: '',
+        company: '',
+        companyCode: '',
         password: '',
         confirmPassword: '',
     });
     const [showPassword, setShowPassword] = useState(false);
     const [passwordError, setPasswordError] = useState('');
+    const [companyPreview, setCompanyPreview] = useState(null);
+    const [codeChecking, setCodeChecking] = useState(false);
+    const [codeError, setCodeError] = useState('');
     const { register, googleLogin, loading, error } = useAuth();
     const navigate = useNavigate();
 
     const handleChange = (e) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value,
-        });
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
 
-        if (e.target.name === 'confirmPassword' || e.target.name === 'password') {
-            if (e.target.name === 'confirmPassword' && formData.password !== e.target.value) {
-                setPasswordError('Passwords do not match');
-            } else if (e.target.name === 'password' && formData.confirmPassword && formData.confirmPassword !== e.target.value) {
-                setPasswordError('Passwords do not match');
-            } else {
-                setPasswordError('');
-            }
+        if (name === 'confirmPassword' || name === 'password') {
+            const pw = name === 'password' ? value : formData.password;
+            const cpw = name === 'confirmPassword' ? value : formData.confirmPassword;
+            setPasswordError(cpw && pw !== cpw ? 'Passwords do not match' : '');
+        }
+
+        if (name === 'companyCode') {
+            setCompanyPreview(null);
+            setCodeError('');
+        }
+    };
+
+    const handleVerifyCode = async () => {
+        if (!formData.companyCode.trim()) return;
+        setCodeChecking(true);
+        setCodeError('');
+        try {
+            const res = await authService.verifyCompanyCode(formData.companyCode.trim());
+            setCompanyPreview(res.companyName);
+        } catch (err) {
+            setCodeError(err.response?.data?.message || 'Invalid company code');
+            setCompanyPreview(null);
+        } finally {
+            setCodeChecking(false);
         }
     };
 
@@ -39,11 +60,18 @@ const Register = () => {
             setPasswordError('Passwords do not match');
             return;
         }
+        if (mode === 'join' && !companyPreview) {
+            setCodeError('Please verify the company code first');
+            return;
+        }
         try {
             await register({
                 name: formData.name,
                 email: formData.email,
                 password: formData.password,
+                company: mode === 'create' ? formData.company : undefined,
+                companyCode: mode === 'join' ? formData.companyCode.trim() : undefined,
+                isAdmin: mode === 'create',
             });
             navigate('/dashboard');
         } catch (err) {
@@ -54,22 +82,22 @@ const Register = () => {
     const handleGoogleRegister = useGoogleLogin({
         onSuccess: async (tokenResponse) => {
             try {
-                // Get user info from Google using the access token
                 const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                    headers: { Authorization: `Bearer ${tokenResponse.access_token} ` }
+                    headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
                 });
                 const userInfo = await userInfoResponse.json();
-
-                // Create a mock credential with user info for our backend
-                await googleLogin(tokenResponse.access_token, userInfo);
+                await googleLogin(
+                    tokenResponse.access_token,
+                    userInfo,
+                    mode === 'create' ? formData.company || 'My Company' : undefined,
+                    mode === 'join' ? formData.companyCode : undefined
+                );
                 navigate('/dashboard');
             } catch (err) {
                 console.error('Google signup failed:', err);
             }
         },
-        onError: () => {
-            console.error('Google signup failed');
-        }
+        onError: () => console.error('Google signup failed')
     });
 
     return (
@@ -97,6 +125,32 @@ const Register = () => {
                         <p className="auth-subtitle">Start your journey with ProjectFlow</p>
                     </div>
 
+                    {/* Mode selector */}
+                    <div className="register-mode-selector">
+                        <button
+                            type="button"
+                            className={`mode-btn ${mode === 'join' ? 'active' : ''}`}
+                            onClick={() => setMode('join')}
+                        >
+                            🔑 Join a Company
+                        </button>
+                        <button
+                            type="button"
+                            className={`mode-btn ${mode === 'create' ? 'active' : ''}`}
+                            onClick={() => setMode('create')}
+                        >
+                            🏢 Create Company
+                        </button>
+                    </div>
+
+                    <div className="mode-description">
+                        {mode === 'join' ? (
+                            <p>👋 Enter the <strong>secret code</strong> shared by your company admin to join your team.</p>
+                        ) : (
+                            <p>👑 Register as an <strong>Admin</strong> to create your company workspace. You'll get a secret code to share with your team.</p>
+                        )}
+                    </div>
+
                     {error && (
                         <div className="auth-error">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -109,6 +163,57 @@ const Register = () => {
                     )}
 
                     <form onSubmit={handleSubmit} className="auth-form">
+                        {/* Company Code Field (Join mode) */}
+                        {mode === 'join' && (
+                            <div className="form-group">
+                                <label className="form-label">Company Secret Code</label>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        type="text"
+                                        name="companyCode"
+                                        value={formData.companyCode}
+                                        onChange={handleChange}
+                                        className={`input ${codeError ? 'input-error' : ''}`}
+                                        placeholder="e.g. A1B2-C3D4"
+                                        style={{ flex: 1, textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 600 }}
+                                        required={mode === 'join'}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={handleVerifyCode}
+                                        disabled={codeChecking || !formData.companyCode}
+                                        style={{ whiteSpace: 'nowrap' }}
+                                    >
+                                        {codeChecking ? '...' : 'Verify'}
+                                    </button>
+                                </div>
+                                {codeError && <span className="form-error">{codeError}</span>}
+                                {companyPreview && (
+                                    <div className="code-verified-badge">
+                                        ✅ Joining: <strong>{companyPreview}</strong>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Company Name Field (Create mode) */}
+                        {mode === 'create' && (
+                            <div className="form-group">
+                                <label htmlFor="company" className="form-label">Company Name</label>
+                                <input
+                                    type="text"
+                                    id="company"
+                                    name="company"
+                                    value={formData.company}
+                                    onChange={handleChange}
+                                    className="input"
+                                    placeholder="Enter your company name"
+                                    required={mode === 'create'}
+                                />
+                            </div>
+                        )}
+
                         <div className="form-group">
                             <label htmlFor="name" className="form-label">Full Name</label>
                             <input
@@ -179,13 +284,11 @@ const Register = () => {
                                 name="confirmPassword"
                                 value={formData.confirmPassword}
                                 onChange={handleChange}
-                                className={`input ${passwordError ? 'input-error' : ''} `}
+                                className={`input ${passwordError ? 'input-error' : ''}`}
                                 placeholder="Confirm your password"
                                 required
                             />
-                            {passwordError && (
-                                <span className="form-error">{passwordError}</span>
-                            )}
+                            {passwordError && <span className="form-error">{passwordError}</span>}
                         </div>
 
                         <label className="checkbox-label">
@@ -193,15 +296,13 @@ const Register = () => {
                             <span>I agree to the <a href="#terms" className="form-link">Terms of Service</a> and <a href="#privacy" className="form-link">Privacy Policy</a></span>
                         </label>
 
-                        <button type="submit" className="btn btn-primary btn-lg auth-submit" disabled={loading || passwordError}>
+                        <button type="submit" className="btn btn-primary btn-lg auth-submit" disabled={loading || !!passwordError}>
                             {loading ? (
                                 <span className="btn-loading">
                                     <span className="spinner"></span>
                                     Creating account...
                                 </span>
-                            ) : (
-                                'Create Account'
-                            )}
+                            ) : mode === 'create' ? '🏢 Create Company & Register' : '🔑 Join Company & Register'}
                         </button>
                     </form>
 
@@ -228,6 +329,12 @@ const Register = () => {
 
                     <p className="auth-footer">
                         Already have an account? <Link to="/login" className="auth-link">Sign in</Link>
+                    </p>
+
+                    <p className="auth-footer" style={{ marginTop: '12px' }}>
+                        <Link to="/admin/login" className="auth-link" style={{ color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            🛡️ Login as Admin
+                        </Link>
                     </p>
                 </div>
             </div>

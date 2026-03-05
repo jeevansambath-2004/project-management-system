@@ -30,6 +30,16 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    company: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'Company name cannot be more than 100 characters']
+    },
+    companyId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Company',
+        default: null
+    },
     role: {
         type: String,
         enum: ['user', 'admin'],

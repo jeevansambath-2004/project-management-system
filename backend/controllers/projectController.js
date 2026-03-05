@@ -316,3 +316,38 @@ exports.joinProject = async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
+
+// @desc    Get current user's role in a project
+// @route   GET /api/projects/:id/role
+exports.getUserProjectRole = async (req, res) => {
+    try {
+        const project = await Project.findById(req.params.id);
+
+        if (!project) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        // System admin
+        if (req.user.role === 'admin') {
+            return res.json({ success: true, data: { role: 'admin', isOwner: project.owner.toString() === req.user.id } });
+        }
+
+        // Project owner
+        if (project.owner.toString() === req.user.id) {
+            return res.json({ success: true, data: { role: 'owner', isOwner: true } });
+        }
+
+        // Check membership
+        const membership = project.members.find(
+            m => m.user.toString() === req.user.id
+        );
+
+        if (!membership) {
+            return res.status(403).json({ message: 'You are not a member of this project' });
+        }
+
+        res.json({ success: true, data: { role: membership.role, isOwner: false } });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};

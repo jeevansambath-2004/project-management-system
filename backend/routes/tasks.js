@@ -12,7 +12,8 @@ const {
     reorderTasks,
     getBacklogTasks,
     getTasksBySprint,
-    assignToSprint
+    assignToSprint,
+    getTeamProgress
 } = require('../controllers/taskController');
 const { protect } = require('../middleware/auth');
 
@@ -26,6 +27,7 @@ router.patch('/reorder', reorderTasks);
 router.get('/project/:projectId', getTasksByProject);
 router.get('/backlog/:projectId', getBacklogTasks);
 router.get('/sprint/:sprintId', getTasksBySprint);
+router.get('/team-progress/:projectId', getTeamProgress);
 
 router.route('/:id')
     .get(getTask)
@@ -37,4 +39,5 @@ router.patch('/:id/assign', assignTask);
 router.patch('/:id/sprint', assignToSprint);
 
 module.exports = router;
+
 

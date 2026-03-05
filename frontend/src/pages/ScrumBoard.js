@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';
+import { useAuth } from '../context/AuthContext';
 import taskService from '../services/taskService';
 import projectService from '../services/projectService';
 import sprintService from '../services/sprintService';
@@ -14,6 +15,7 @@ const STATUSES = [
 ];
 
 const ScrumBoard = () => {
+    const { user } = useAuth();
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
     const [sprints, setSprints] = useState([]);
@@ -29,6 +31,10 @@ const ScrumBoard = () => {
     const [editingSprint, setEditingSprint] = useState(null);
     const [editingTask, setEditingTask] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [projectRole, setProjectRole] = useState(null);
+
+    // Check if user is admin/owner
+    const isProjectAdmin = user?.role === 'admin' || projectRole === 'owner' || projectRole === 'admin';
 
     // Form data
     const [sprintForm, setSprintForm] = useState({
@@ -38,13 +44,16 @@ const ScrumBoard = () => {
         endDate: ''
     });
 
+    const [projectMembers, setProjectMembers] = useState([]);
+
     const [taskForm, setTaskForm] = useState({
         title: '',
         description: '',
         priority: 'medium',
         status: 'todo',
         dueDate: '',
-        storyPoints: 0
+        storyPoints: 0,
+        assignee: ''
     });
 
     useEffect(() => {
@@ -54,6 +63,27 @@ const ScrumBoard = () => {
     useEffect(() => {
         if (selectedProject) {
             fetchProjectData();
+            // Fetch role
+            const fetchRole = async () => {
+                try {
+                    const roleRes = await projectService.getUserRole(selectedProject);
+                    setProjectRole(roleRes.data?.role || 'member');
+                } catch (error) {
+                    console.error('Error fetching project role:', error);
+                    setProjectRole('member');
+                }
+            };
+            fetchRole();
+            // Load project members for assignee dropdown
+            const loadMembers = async () => {
+                try {
+                    const members = await projectService.getMembers(selectedProject);
+                    setProjectMembers(members);
+                } catch {
+                    setProjectMembers([]);
+                }
+            };
+            loadMembers();
         }
     }, [selectedProject]);
 
@@ -217,7 +247,8 @@ const ScrumBoard = () => {
                 priority: task.priority,
                 status: task.status,
                 dueDate: task.dueDate?.split('T')[0] || '',
-                storyPoints: task.storyPoints || 0
+                storyPoints: task.storyPoints || 0,
+                assignee: task.assignee?._id || task.assignee || ''
             });
         } else {
             setTaskForm({
@@ -226,7 +257,8 @@ const ScrumBoard = () => {
                 priority: 'medium',
                 status: status,
                 dueDate: '',
-                storyPoints: 0
+                storyPoints: 0,
+                assignee: ''
             });
         }
         setShowTaskModal(true);
@@ -365,17 +397,26 @@ const ScrumBoard = () => {
                                     </button>
                                 </div>
                                 <div className="scrum-actions">
-                                    {view === 'sprint' && activeSprint && (
+                                    {view === 'sprint' && activeSprint && isProjectAdmin && (
                                         <button className="btn btn-warning" onClick={handleCompleteSprint}>
                                             ✓ Complete Sprint
                                         </button>
                                     )}
-                                    <button className="btn btn-secondary" onClick={() => openSprintModal()}>
-                                        + New Sprint
-                                    </button>
-                                    <button className="btn btn-primary" onClick={() => openTaskModal()}>
-                                        + New Task
-                                    </button>
+                                    {isProjectAdmin && (
+                                        <button className="btn btn-secondary" onClick={() => openSprintModal()}>
+                                            + New Sprint
+                                        </button>
+                                    )}
+                                    {isProjectAdmin && (
+                                        <button className="btn btn-primary" onClick={() => openTaskModal()}>
+                                            + New Task
+                                        </button>
+                                    )}
+                                    {selectedProject && projectRole && (
+                                        <span className={`role-indicator ${isProjectAdmin ? 'role-admin' : 'role-member'}`}>
+                                            {isProjectAdmin ? '🛡️ Admin' : '👤 Member'}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
@@ -492,7 +533,7 @@ const ScrumBoard = () => {
                                                                 draggable
                                                                 onDragStart={(e) => handleDragStart(e, task)}
                                                                 onDragEnd={handleDragEnd}
-                                                                onClick={() => openTaskModal(task)}
+                                                                onClick={() => isProjectAdmin && openTaskModal(task)}
                                                             >
                                                                 <div className="task-card-top">
                                                                     <span className={`priority-dot priority-${task.priority}`}></span>
@@ -505,6 +546,14 @@ const ScrumBoard = () => {
                                                                     <p className="task-desc">{task.description}</p>
                                                                 )}
                                                                 <div className="task-card-bottom">
+                                                                    {task.assignee && (
+                                                                        <span className="task-assignee" title={`Assigned to ${task.assignee.name}`}>
+                                                                            {task.assignee.avatar
+                                                                                ? <img src={task.assignee.avatar} alt={task.assignee.name} style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover' }} />
+                                                                                : <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{task.assignee.name?.charAt(0).toUpperCase()}</span>
+                                                                            }
+                                                                        </span>
+                                                                    )}
                                                                     {task.dueDate && (
                                                                         <span className="due-badge">
                                                                             📅 {new Date(task.dueDate).toLocaleDateString()}
@@ -562,7 +611,7 @@ const ScrumBoard = () => {
                                                             {task.status.replace('-', ' ')}
                                                         </span>
                                                         <div className="backlog-item-actions">
-                                                            {activeSprint && (
+                                                            {isProjectAdmin && activeSprint && (
                                                                 <button
                                                                     className="btn btn-sm btn-primary"
                                                                     onClick={() => handleMoveToSprint(task._id)}
@@ -570,18 +619,22 @@ const ScrumBoard = () => {
                                                                     → Sprint
                                                                 </button>
                                                             )}
-                                                            <button
-                                                                className="btn btn-sm btn-secondary"
-                                                                onClick={() => openTaskModal(task)}
-                                                            >
-                                                                Edit
-                                                            </button>
-                                                            <button
-                                                                className="btn btn-sm btn-danger"
-                                                                onClick={() => handleDeleteTask(task._id)}
-                                                            >
-                                                                ×
-                                                            </button>
+                                                            {isProjectAdmin && (
+                                                                <button
+                                                                    className="btn btn-sm btn-secondary"
+                                                                    onClick={() => openTaskModal(task)}
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                            )}
+                                                            {isProjectAdmin && (
+                                                                <button
+                                                                    className="btn btn-sm btn-danger"
+                                                                    onClick={() => handleDeleteTask(task._id)}
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -738,6 +791,21 @@ const ScrumBoard = () => {
                                         onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
                                     />
                                 </div>
+                            </div>
+                            <div className="form-group">
+                                <label>Assign To</label>
+                                <select
+                                    className="input"
+                                    value={taskForm.assignee}
+                                    onChange={(e) => setTaskForm({ ...taskForm, assignee: e.target.value })}
+                                >
+                                    <option value="">— Unassigned —</option>
+                                    {projectMembers.map(member => (
+                                        <option key={member._id} value={member._id}>
+                                            {member.name} {member.role === 'owner' ? '(Owner)' : `(${member.role})`}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowTaskModal(false)}>

@@ -36,3 +36,60 @@ exports.authorize = (...roles) => {
         next();
     };
 };
+
+// Middleware to check if user is owner or admin of a specific project
+// Looks for projectId in req.params.id, req.params.projectId, or req.body.project
+const Project = require('../models/Project');
+
+exports.authorizeProjectRole = (...allowedRoles) => {
+    return async (req, res, next) => {
+        try {
+            const projectId = req.params.id || req.params.projectId || req.body.project;
+
+            if (!projectId) {
+                return res.status(400).json({ message: 'Project ID is required' });
+            }
+
+            const project = await Project.findById(projectId);
+            if (!project) {
+                return res.status(404).json({ message: 'Project not found' });
+            }
+
+            // System admin can always access
+            if (req.user.role === 'admin') {
+                req.projectRole = 'admin';
+                req.project = project;
+                return next();
+            }
+
+            // Check if user is the project owner
+            const isOwner = project.owner.toString() === req.user.id;
+            if (isOwner) {
+                req.projectRole = 'owner';
+                req.project = project;
+                return next();
+            }
+
+            // Check user's role in the project members
+            const membership = project.members.find(
+                m => m.user.toString() === req.user.id
+            );
+
+            if (!membership) {
+                return res.status(403).json({ message: 'You are not a member of this project' });
+            }
+
+            if (!allowedRoles.includes(membership.role)) {
+                return res.status(403).json({
+                    message: `Your project role '${membership.role}' does not have permission for this action. Required: ${allowedRoles.join(', ')}`
+                });
+            }
+
+            req.projectRole = membership.role;
+            req.project = project;
+            next();
+        } catch (err) {
+            return res.status(500).json({ message: 'Authorization error', error: err.message });
+        }
+    };
+};

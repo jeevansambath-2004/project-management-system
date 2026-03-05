@@ -1,10 +1,11 @@
 const User = require('../models/User');
+const Company = require('../models/Company');
 
 // @desc    Register user
 // @route   POST /api/auth/register
 exports.register = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, company, companyCode, isAdmin } = req.body;
 
         // Check if user exists
         const existingUser = await User.findOne({ email });
@@ -12,8 +13,49 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: 'User already exists' });
         }
 
+        let companyRecord = null;
+        let companyName = company;
+        let userRole = 'user';
+
+        if (companyCode) {
+            // Joining an existing company via secret code
+            companyRecord = await Company.findOne({ secretCode: companyCode.trim().toUpperCase() });
+            if (!companyRecord) {
+                return res.status(400).json({ message: 'Invalid company secret code. Please check and try again.' });
+            }
+            companyName = companyRecord.name;
+        } else if (isAdmin || (!companyCode && company)) {
+            // Creating a new company (admin registration)
+            if (!company) {
+                return res.status(400).json({ message: 'Please provide a company name' });
+            }
+            userRole = 'admin';
+        } else {
+            return res.status(400).json({ message: 'Please provide a company name or a company secret code.' });
+        }
+
         // Create user
-        const user = await User.create({ name, email, password, authProvider: 'local' });
+        const user = await User.create({
+            name,
+            email,
+            password,
+            company: companyName || 'My Company',
+            companyId: companyRecord ? companyRecord._id : null,
+            role: userRole,
+            authProvider: 'local'
+        });
+
+        // If admin, create the company record with this user as admin
+        if (userRole === 'admin') {
+            const newCompany = await Company.create({
+                name: company,
+                admin: user._id
+            });
+            // Link company back to user
+            user.companyId = newCompany._id;
+            await user.save();
+            companyRecord = newCompany;
+        }
 
         // Generate token
         const token = user.getSignedJwtToken();
@@ -25,7 +67,10 @@ exports.register = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                company: user.company,
+                companyId: user.companyId,
+                companyCode: companyRecord?.secretCode || null
             }
         });
     } catch (error) {
@@ -37,7 +82,7 @@ exports.register = async (req, res) => {
 // @route   POST /api/auth/login
 exports.login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, company } = req.body;
 
         // Validate email & password
         if (!email || !password) {
@@ -55,10 +100,22 @@ exports.login = async (req, res) => {
             return res.status(400).json({ message: 'This account was created with Google. Please sign in with Google.' });
         }
 
+        // If company is provided, verify it matches
+        if (company && user.company && user.company.toLowerCase() !== company.toLowerCase()) {
+            return res.status(401).json({ message: 'Invalid credentials. Company does not match.' });
+        }
+
         // Check if password matches
         const isMatch = await user.matchPassword(password);
         if (!isMatch) {
             return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        // Fetch company code if admin
+        let companyCode = null;
+        if (user.companyId) {
+            const companyRecord = await Company.findById(user.companyId);
+            companyCode = companyRecord?.secretCode || null;
         }
 
         // Generate token
@@ -71,7 +128,10 @@ exports.login = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                company: user.company,
+                companyId: user.companyId,
+                companyCode
             }
         });
     } catch (error) {
@@ -83,7 +143,7 @@ exports.login = async (req, res) => {
 // @route   POST /api/auth/google
 exports.googleAuth = async (req, res) => {
     try {
-        const { accessToken, userInfo } = req.body;
+        const { accessToken, userInfo, company, companyCode } = req.body;
 
         if (!accessToken || !userInfo) {
             return res.status(400).json({ message: 'Access token and user info are required' });
@@ -107,14 +167,36 @@ exports.googleAuth = async (req, res) => {
                 await user.save();
             }
         } else {
-            // Create new user
+            // Resolve company info
+            let companyRecord = null;
+            let companyName = company;
+            let userRole = 'user';
+
+            if (companyCode) {
+                companyRecord = await Company.findOne({ secretCode: companyCode.trim().toUpperCase() });
+                if (companyRecord) {
+                    companyName = companyRecord.name;
+                }
+            }
+
+            // Create new user via Google sign-up
             user = await User.create({
                 name,
                 email,
                 googleId,
                 avatar: picture || '',
+                company: companyName || 'My Company',
+                companyId: companyRecord ? companyRecord._id : null,
+                role: userRole,
                 authProvider: 'google'
             });
+        }
+
+        // Fetch company code if admin
+        let companySecretCode = null;
+        if (user.companyId) {
+            const companyRecord = await Company.findById(user.companyId);
+            companySecretCode = companyRecord?.secretCode || null;
         }
 
         // Generate token
@@ -128,6 +210,9 @@ exports.googleAuth = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                company: user.company,
+                companyId: user.companyId,
+                companyCode: companySecretCode,
                 avatar: user.avatar
             }
         });
@@ -142,6 +227,11 @@ exports.googleAuth = async (req, res) => {
 exports.getMe = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
+        let companyCode = null;
+        if (user.companyId) {
+            const companyRecord = await Company.findById(user.companyId);
+            companyCode = companyRecord?.secretCode || null;
+        }
         res.json({
             success: true,
             user: {
@@ -149,6 +239,9 @@ exports.getMe = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                company: user.company,
+                companyId: user.companyId,
+                companyCode,
                 avatar: user.avatar,
                 createdAt: user.createdAt
             }
@@ -170,6 +263,12 @@ exports.updateProfile = async (req, res) => {
             { new: true, runValidators: true }
         );
 
+        let companyCode = null;
+        if (user.companyId) {
+            const companyRecord = await Company.findById(user.companyId);
+            companyCode = companyRecord?.secretCode || null;
+        }
+
         res.json({
             success: true,
             user: {
@@ -177,9 +276,30 @@ exports.updateProfile = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                company: user.company,
+                companyId: user.companyId,
+                companyCode,
                 avatar: user.avatar
             }
         });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Verify company secret code
+// @route   POST /api/auth/verify-company-code
+exports.verifyCompanyCode = async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code) {
+            return res.status(400).json({ message: 'Please provide a company code' });
+        }
+        const company = await Company.findOne({ secretCode: code.trim().toUpperCase() });
+        if (!company) {
+            return res.status(404).json({ message: 'Invalid company code. No company found.' });
+        }
+        res.json({ success: true, companyName: company.name });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }

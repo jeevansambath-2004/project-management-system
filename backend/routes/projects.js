@@ -12,7 +12,8 @@ const {
     getInviteLink,
     regenerateInviteCode,
     getProjectByInvite,
-    joinProject
+    joinProject,
+    getUserProjectRole
 } = require('../controllers/projectController');
 const { protect } = require('../middleware/auth');
 
@@ -30,6 +31,9 @@ router.route('/:id')
     .get(getProject)
     .put(updateProject)
     .delete(deleteProject);
+
+// User role in project
+router.get('/:id/role', getUserProjectRole);
 
 router.post('/:id/members', addMember);
 router.delete('/:id/members/:userId', removeMember);

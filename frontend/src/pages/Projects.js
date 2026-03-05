@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import projectService from '../services/projectService';
 import userService from '../services/userService';
@@ -9,6 +9,7 @@ import './Pages.css';
 
 const Projects = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -28,6 +29,12 @@ const Projects = () => {
     const [inviteData, setInviteData] = useState(null);
     const [inviteLoading, setInviteLoading] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Join via invite state
+    const [showJoinModal, setShowJoinModal] = useState(false);
+    const [joinCode, setJoinCode] = useState('');
+    const [joinLoading, setJoinLoading] = useState(false);
+    const [joinError, setJoinError] = useState('');
 
     // Team members state
     const [showMembersModal, setShowMembersModal] = useState(false);
@@ -197,6 +204,35 @@ const Projects = () => {
         setSearchResults([]);
     };
 
+    // Join via Invite Link
+    const handleJoinViaInvite = async () => {
+        if (!joinCode.trim()) {
+            setJoinError('Please enter an invite code or link');
+            return;
+        }
+
+        // Extract invite code from full URL or just use the code directly
+        let code = joinCode.trim();
+        // Handle full URLs like http://localhost:3000/join/abc123
+        const urlMatch = code.match(/\/join\/([a-zA-Z0-9]+)/);
+        if (urlMatch) {
+            code = urlMatch[1];
+        }
+
+        try {
+            setJoinLoading(true);
+            setJoinError('');
+            await projectService.joinProject(code);
+            setShowJoinModal(false);
+            setJoinCode('');
+            fetchProjects();
+        } catch (error) {
+            setJoinError(error.response?.data?.message || 'Failed to join project. Please check the invite code.');
+        } finally {
+            setJoinLoading(false);
+        }
+    };
+
     const closeMembersModal = () => {
         setShowMembersModal(false);
         setSelectedProject(null);
@@ -317,13 +353,24 @@ const Projects = () => {
                 <div className="container">
                     <div className="page-header">
                         <h1>Projects</h1>
-                        <button className="btn btn-primary" onClick={openCreateModal}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-                                <line x1="12" y1="5" x2="12" y2="19" />
-                                <line x1="5" y1="12" x2="19" y2="12" />
-                            </svg>
-                            New Project
-                        </button>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <button className="btn btn-secondary" onClick={() => { setShowJoinModal(true); setJoinCode(''); setJoinError(''); }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                </svg>
+                                + Invite Link
+                            </button>
+                            {user?.role === 'admin' && (
+                                <button className="btn btn-primary" onClick={openCreateModal}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    New Project
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {loading ? (
@@ -335,10 +382,16 @@ const Projects = () => {
                         <div className="empty-state-large">
                             <div className="empty-icon">📁</div>
                             <h2>No projects yet</h2>
-                            <p>Create your first project to get started!</p>
-                            <button className="btn btn-primary" onClick={openCreateModal}>
-                                Create Project
-                            </button>
+                            {user?.role === 'admin' ? (
+                                <>
+                                    <p>Create your first project to get started!</p>
+                                    <button className="btn btn-primary" onClick={openCreateModal}>
+                                        Create Project
+                                    </button>
+                                </>
+                            ) : (
+                                <p>Projects are created by administrators. Use an invite link to join a project.</p>
+                            )}
                         </div>
                     ) : (
                         <div className="projects-grid">
@@ -735,6 +788,51 @@ const Projects = () => {
                                         ))}
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Join via Invite Link Modal */}
+            {showJoinModal && (
+                <div className="modal-overlay" onClick={() => setShowJoinModal(false)}>
+                    <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>🔗 Join via Invite Link</h2>
+                            <button className="modal-close" onClick={() => setShowJoinModal(false)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <p className="text-secondary" style={{ marginBottom: '1rem' }}>
+                                Paste an invite link or code to join a project
+                            </p>
+                            <div className="form-group">
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="e.g. http://localhost:3000/join/abc123 or abc123"
+                                    value={joinCode}
+                                    onChange={(e) => { setJoinCode(e.target.value); setJoinError(''); }}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleJoinViaInvite()}
+                                    autoFocus
+                                />
+                            </div>
+                            {joinError && (
+                                <div className="alert alert-error" style={{ marginBottom: '1rem', padding: '10px 14px', fontSize: '13px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                    {joinError}
+                                </div>
+                            )}
+                            <div className="modal-actions">
+                                <button className="btn btn-secondary" onClick={() => setShowJoinModal(false)}>
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleJoinViaInvite}
+                                    disabled={joinLoading || !joinCode.trim()}
+                                >
+                                    {joinLoading ? 'Joining...' : 'Join Project'}
+                                </button>
                             </div>
                         </div>
                     </div>

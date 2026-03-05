@@ -25,6 +25,7 @@ app.use('/api/tasks', require('./routes/tasks'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/sprints', require('./routes/sprints'));
+app.use('/api/admin', require('./routes/admin'));
 
 // Health check
 app.get('/api/health', (req, res) => {

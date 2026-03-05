@@ -15,9 +15,13 @@ import NotFound from '../pages/NotFound';
 import JoinProject from '../pages/JoinProject';
 import KanbanBoard from '../pages/KanbanBoard';
 import ScrumBoard from '../pages/ScrumBoard';
+import AdminPanel from '../pages/AdminPanel';
+import AdminAccess from '../pages/AdminAccess';
+import TeamProgress from '../pages/TeamProgress';
 
 // Components
 import PrivateRoute from '../components/PrivateRoute';
+import AdminRoute from '../components/AdminRoute';
 
 const AppRoutes = () => {
     return (
@@ -30,44 +34,40 @@ const AppRoutes = () => {
 
             {/* Protected Routes */}
             <Route path="/dashboard" element={
-                <PrivateRoute>
-                    <Dashboard />
-                </PrivateRoute>
+                <PrivateRoute><Dashboard /></PrivateRoute>
             } />
             <Route path="/projects" element={
-                <PrivateRoute>
-                    <Projects />
-                </PrivateRoute>
+                <PrivateRoute><Projects /></PrivateRoute>
             } />
             <Route path="/projects/:id" element={
-                <PrivateRoute>
-                    <ProjectDetails />
-                </PrivateRoute>
+                <PrivateRoute><ProjectDetails /></PrivateRoute>
             } />
             <Route path="/tasks" element={
-                <PrivateRoute>
-                    <Tasks />
-                </PrivateRoute>
+                <PrivateRoute><Tasks /></PrivateRoute>
             } />
             <Route path="/kanban" element={
-                <PrivateRoute>
-                    <KanbanBoard />
-                </PrivateRoute>
+                <PrivateRoute><KanbanBoard /></PrivateRoute>
             } />
             <Route path="/scrum" element={
-                <PrivateRoute>
-                    <ScrumBoard />
-                </PrivateRoute>
+                <PrivateRoute><ScrumBoard /></PrivateRoute>
             } />
             <Route path="/messages" element={
-                <PrivateRoute>
-                    <Messages />
-                </PrivateRoute>
+                <PrivateRoute><Messages /></PrivateRoute>
             } />
             <Route path="/profile" element={
-                <PrivateRoute>
-                    <Profile />
-                </PrivateRoute>
+                <PrivateRoute><Profile /></PrivateRoute>
+            } />
+            <Route path="/team-progress" element={
+                <PrivateRoute><TeamProgress /></PrivateRoute>
+            } />
+            <Route path="/team-progress/:projectId" element={
+                <PrivateRoute><TeamProgress /></PrivateRoute>
+            } />
+
+            {/* Admin Routes */}
+            <Route path="/admin/login" element={<AdminAccess />} />
+            <Route path="/admin" element={
+                <AdminRoute><AdminPanel /></AdminRoute>
             } />
 
             {/* 404 Route */}

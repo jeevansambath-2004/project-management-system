@@ -8,6 +8,7 @@ const Login = () => {
     const [formData, setFormData] = useState({
         email: '',
         password: '',
+        company: '',
     });
     const [showPassword, setShowPassword] = useState(false);
     const { login, googleLogin, loading, error } = useAuth();
@@ -88,6 +89,19 @@ const Login = () => {
                     )}
 
                     <form onSubmit={handleSubmit} className="auth-form">
+                        <div className="form-group">
+                            <label htmlFor="company" className="form-label">Company</label>
+                            <input
+                                type="text"
+                                id="company"
+                                name="company"
+                                value={formData.company}
+                                onChange={handleChange}
+                                className="input"
+                                placeholder="Enter your company name"
+                            />
+                        </div>
+
                         <div className="form-group">
                             <label htmlFor="email" className="form-label">Email</label>
                             <input
@@ -178,6 +192,12 @@ const Login = () => {
 
                     <p className="auth-footer">
                         Don't have an account? <Link to="/register" className="auth-link">Sign up</Link>
+                    </p>
+
+                    <p className="auth-footer" style={{ marginTop: '12px' }}>
+                        <Link to="/admin/login" className="auth-link" style={{ color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            🛡️ Login as Admin
+                        </Link>
                     </p>
                 </div>
             </div>

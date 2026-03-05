@@ -33,6 +33,16 @@ const Navbar = () => {
                             <Link to="/projects" className="navbar-link">Projects</Link>
                             <Link to="/tasks" className="navbar-link">Tasks</Link>
                             <Link to="/messages" className="navbar-link">Messages</Link>
+                            {user?.role === 'admin' && (
+                                <>
+                                    <Link to="/team-progress" className="navbar-link" style={{ color: '#10b981' }}>
+                                        📊 Team Progress
+                                    </Link>
+                                    <Link to="/admin" className="navbar-link" style={{ color: '#f59e0b' }}>
+                                        👑 Admin
+                                    </Link>
+                                </>
+                            )}
                         </>
                     ) : (
                         <>
@@ -50,7 +60,16 @@ const Navbar = () => {
                                 <div className="navbar-avatar">
                                     {user?.name?.charAt(0).toUpperCase() || 'U'}
                                 </div>
-                                <span className="navbar-username">{user?.name}</span>
+                                <div className="navbar-user-info">
+                                    <span className="navbar-username">{user?.name}</span>
+                                    <span className="navbar-company">{user?.company || ''}</span>
+                                </div>
+                                {user?.role === 'admin' && (
+                                    <span className="navbar-role-badge admin-badge">Admin</span>
+                                )}
+                                {user?.role === 'user' && (
+                                    <span className="navbar-role-badge member-badge">Member</span>
+                                )}
                             </Link>
                             <button onClick={handleLogout} className="btn btn-ghost">
                                 Logout

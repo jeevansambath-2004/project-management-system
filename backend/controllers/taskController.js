@@ -1,6 +1,13 @@
 const Task = require('../models/Task');
 const Project = require('../models/Project');
 
+// Helper function to get user's role in a project
+const getUserRoleInProject = (project, userId) => {
+    if (project.owner.toString() === userId) return 'owner';
+    const member = project.members.find(m => m.user.toString() === userId);
+    return member ? member.role : null;
+};
+
 // @desc    Get all tasks
 // @route   GET /api/tasks
 exports.getTasks = async (req, res) => {
@@ -59,10 +66,21 @@ exports.getTask = async (req, res) => {
     }
 };
 
-// @desc    Create task
+// @desc    Create task (admin/owner only)
 // @route   POST /api/tasks
 exports.createTask = async (req, res) => {
     try {
+        // Check if user has admin role in the project
+        const project = await Project.findById(req.body.project);
+        if (!project) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        const userRole = getUserRoleInProject(project, req.user.id);
+        if (req.user.role !== 'admin' && userRole !== 'owner' && userRole !== 'admin') {
+            return res.status(403).json({ message: 'Only project admins can create tasks' });
+        }
+
         req.body.createdBy = req.user.id;
         const task = await Task.create(req.body);
 
@@ -77,7 +95,7 @@ exports.createTask = async (req, res) => {
     }
 };
 
-// @desc    Update task
+// @desc    Update task (admin can update all fields, members can only update status)
 // @route   PUT /api/tasks/:id
 exports.updateTask = async (req, res) => {
     try {
@@ -85,6 +103,23 @@ exports.updateTask = async (req, res) => {
 
         if (!task) {
             return res.status(404).json({ message: 'Task not found' });
+        }
+
+        // Check user's role in the task's project
+        const project = await Project.findById(task.project);
+        const userRole = getUserRoleInProject(project, req.user.id);
+        const isProjectAdmin = req.user.role === 'admin' || userRole === 'owner' || userRole === 'admin';
+
+        // Members can only update status
+        if (!isProjectAdmin) {
+            // Only allow status update for members
+            const allowedFields = ['status'];
+            const updateFields = Object.keys(req.body);
+            const isStatusOnly = updateFields.every(f => allowedFields.includes(f));
+
+            if (!isStatusOnly) {
+                return res.status(403).json({ message: 'Members can only update task status' });
+            }
         }
 
         // Update completedAt if status changes to done
@@ -129,19 +164,27 @@ exports.updateTaskStatus = async (req, res) => {
     }
 };
 
-// @desc    Assign task
+// @desc    Assign task (admin/owner only)
 // @route   PATCH /api/tasks/:id/assign
 exports.assignTask = async (req, res) => {
     try {
+        const existingTask = await Task.findById(req.params.id);
+        if (!existingTask) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+
+        // Check if user has admin role in the project
+        const project = await Project.findById(existingTask.project);
+        const userRole = getUserRoleInProject(project, req.user.id);
+        if (req.user.role !== 'admin' && userRole !== 'owner' && userRole !== 'admin') {
+            return res.status(403).json({ message: 'Only project admins can assign tasks' });
+        }
+
         const task = await Task.findByIdAndUpdate(
             req.params.id,
             { assignee: req.body.userId },
             { new: true }
         ).populate('assignee', 'name email avatar');
-
-        if (!task) {
-            return res.status(404).json({ message: 'Task not found' });
-        }
 
         res.json({ success: true, data: task });
     } catch (error) {
@@ -149,7 +192,7 @@ exports.assignTask = async (req, res) => {
     }
 };
 
-// @desc    Delete task
+// @desc    Delete task (admin/owner only)
 // @route   DELETE /api/tasks/:id
 exports.deleteTask = async (req, res) => {
     try {
@@ -157,6 +200,13 @@ exports.deleteTask = async (req, res) => {
 
         if (!task) {
             return res.status(404).json({ message: 'Task not found' });
+        }
+
+        // Check if user has admin role in the project
+        const project = await Project.findById(task.project);
+        const userRole = getUserRoleInProject(project, req.user.id);
+        if (req.user.role !== 'admin' && userRole !== 'owner' && userRole !== 'admin') {
+            return res.status(403).json({ message: 'Only project admins can delete tasks' });
         }
 
         await task.deleteOne();
@@ -250,3 +300,86 @@ exports.assignToSprint = async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
+
+// @desc    Get team progress for a project (tasks per member)
+// @route   GET /api/tasks/team-progress/:projectId
+exports.getTeamProgress = async (req, res) => {
+    try {
+        const project = await Project.findById(req.params.projectId)
+            .populate('owner', 'name email avatar')
+            .populate('members.user', 'name email avatar');
+
+        if (!project) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        // Only admin/owner can view team progress
+        const userRole = getUserRoleInProject(project, req.user.id);
+        if (req.user.role !== 'admin' && userRole !== 'owner' && userRole !== 'admin') {
+            return res.status(403).json({ message: 'Not authorized to view team progress' });
+        }
+
+        // Aggregate tasks by assignee for this project
+        const tasksByAssignee = await Task.aggregate([
+            { $match: { project: project._id } },
+            {
+                $group: {
+                    _id: '$assignee',
+                    total: { $sum: 1 },
+                    todo: { $sum: { $cond: [{ $eq: ['$status', 'todo'] }, 1, 0] } },
+                    inProgress: { $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] } },
+                    review: { $sum: { $cond: [{ $eq: ['$status', 'review'] }, 1, 0] } },
+                    done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }
+                }
+            }
+        ]);
+
+        // Build a map: userId -> stats
+        const statsMap = {};
+        tasksByAssignee.forEach(item => {
+            statsMap[item._id?.toString()] = item;
+        });
+
+        // Build team list with owner + members
+        const teamMembers = [
+            { user: project.owner, role: 'owner' },
+            ...project.members.map(m => ({ user: m.user, role: m.role }))
+        ];
+
+        const progress = teamMembers.map(({ user, role }) => {
+            if (!user) return null;
+            const stats = statsMap[user._id?.toString()] || { total: 0, todo: 0, inProgress: 0, review: 0, done: 0 };
+            return {
+                user: { _id: user._id, name: user.name, email: user.email, avatar: user.avatar },
+                role,
+                total: stats.total,
+                todo: stats.todo,
+                inProgress: stats.inProgress,
+                review: stats.review,
+                done: stats.done,
+                completionRate: stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0
+            };
+        }).filter(Boolean);
+
+        // Also include tasks assigned to no one
+        const unassignedStats = statsMap['null'] || statsMap['undefined'] || { total: 0, todo: 0, inProgress: 0, review: 0, done: 0 };
+
+        res.json({
+            success: true,
+            data: {
+                project: { _id: project._id, name: project.name, color: project.color },
+                team: progress,
+                unassigned: {
+                    total: unassignedStats.total || 0,
+                    todo: unassignedStats.todo || 0,
+                    inProgress: unassignedStats.inProgress || 0,
+                    review: unassignedStats.review || 0,
+                    done: unassignedStats.done || 0
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+

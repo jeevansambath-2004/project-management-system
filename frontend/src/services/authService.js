@@ -23,14 +23,15 @@ export const authService = {
     },
 
     // Google OAuth login
-    googleLogin: async (accessToken, userInfo) => {
-        const response = await api.post('/auth/google', { accessToken, userInfo });
+    googleLogin: async (accessToken, userInfo, company, companyCode) => {
+        const response = await api.post('/auth/google', { accessToken, userInfo, company, companyCode });
         if (response.data.token) {
             localStorage.setItem('token', response.data.token);
             localStorage.setItem('user', JSON.stringify(response.data.user));
         }
         return response.data;
     },
+
 
     // Logout user
     logout: () => {
@@ -53,6 +54,12 @@ export const authService = {
     // Update user profile
     updateProfile: async (userData) => {
         const response = await api.put('/auth/profile', userData);
+        return response.data;
+    },
+
+    // Verify a company secret code
+    verifyCompanyCode: async (code) => {
+        const response = await api.post('/auth/verify-company-code', { code });
         return response.data;
     },
 };
