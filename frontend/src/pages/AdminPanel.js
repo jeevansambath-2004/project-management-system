@@ -3,7 +3,9 @@ import Navbar from '../components/Navbar';
 import { useAuth } from '../context/AuthContext';
 import adminService from '../services/adminService';
 import projectService from '../services/projectService';
+import ActivityCalendar from '../components/ActivityCalendar';
 import './AdminPanel.css';
+import './ProductivityDashboard.css'; // Reuse some dashboard styles for the heatmap card
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6'];
 
@@ -16,6 +18,11 @@ const AdminPanel = () => {
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState(null);
     const [confirmModal, setConfirmModal] = useState(null);
+
+    // Manage Members State
+    const [showManageMembers, setShowManageMembers] = useState(false);
+    const [selectedProject, setSelectedProject] = useState(null);
+    const [membersLoading, setMembersLoading] = useState(false);
 
     // Users tab state
     const [userSearch, setUserSearch] = useState('');
@@ -186,6 +193,33 @@ const AdminPanel = () => {
         }
     };
 
+    const openManageMembers = (project) => {
+        setSelectedProject(project);
+        setShowManageMembers(true);
+    };
+
+    const handleRemoveMemberFromProject = async (projectId, userId) => {
+        if (!window.confirm('Are you sure you want to remove this member from the project?')) return;
+        try {
+            setMembersLoading(true);
+            await projectService.removeMember(projectId, userId);
+
+            // Update selected project locally
+            setSelectedProject(prev => ({
+                ...prev,
+                members: prev.members.filter(m => m.user?._id !== userId)
+            }));
+
+            showToast('Member removed successfully');
+            fetchProjects();
+        } catch (error) {
+            console.error('Error removing member:', error);
+            showToast(error.response?.data?.message || 'Failed to remove member', 'error');
+        } finally {
+            setMembersLoading(false);
+        }
+    };
+
     const formatDate = (date) => {
         return new Date(date).toLocaleDateString('en-US', {
             month: 'short',
@@ -352,6 +386,20 @@ const AdminPanel = () => {
                                     </div>
                                 ))
                             )}
+                        </div>
+                    </div>
+
+                    {/* System Activity Heatmap */}
+                    <div className="dashboard-card calendar-card fade-in" style={{ gridColumn: '1 / -1', marginTop: '24px' }}>
+                        <div className="card-header">
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>System Activity Heatmap</h2>
+                                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>Overview of task completion across the entire platform</p>
+                            </div>
+                            <div className="badge-icon">📅</div>
+                        </div>
+                        <div style={{ padding: '20px 0' }}>
+                            <ActivityCalendar data={stats.systemActivity || []} daysToRender={365} />
                         </div>
                     </div>
                 </div>
@@ -648,6 +696,14 @@ const AdminPanel = () => {
                                             <td>
                                                 <div className="admin-actions">
                                                     <button
+                                                        className="admin-action-btn edit-btn"
+                                                        title="Manage Members"
+                                                        onClick={() => openManageMembers(p)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', marginRight: '8px' }}
+                                                    >
+                                                        👥
+                                                    </button>
+                                                    <button
                                                         className="admin-action-btn delete-btn"
                                                         title="Delete Project"
                                                         onClick={() => handleDeleteProject(p._id, p.name)}
@@ -772,6 +828,84 @@ const AdminPanel = () => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Manage Members Modal */}
+                {showManageMembers && selectedProject && (
+                    <div className="modal-overlay" onClick={() => setShowManageMembers(false)}>
+                        <div className="modal modal-members" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h2>Manage Team Members</h2>
+                                <button className="modal-close" onClick={() => setShowManageMembers(false)}>×</button>
+                            </div>
+                            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '1rem 0' }}>
+                                <p className="text-secondary" style={{ marginBottom: '1rem', padding: '0 1.5rem' }}>
+                                    Manage members for <strong>{selectedProject.name}</strong>
+                                </p>
+
+                                <div className="members-section" style={{ padding: '0 1.5rem' }}>
+                                    <h4 className="members-section-title">
+                                        <span>👑 Owner</span>
+                                    </h4>
+                                    <div className="member-card owner-card" style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', marginBottom: '1rem' }}>
+                                        <div className="member-avatar" style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', marginRight: '1rem' }}>
+                                            {selectedProject.owner?.avatar ? (
+                                                <img src={selectedProject.owner.avatar} alt={selectedProject.owner.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                                            ) : (
+                                                selectedProject.owner?.name?.charAt(0).toUpperCase() || '?'
+                                            )}
+                                        </div>
+                                        <div className="member-info" style={{ flex: 1 }}>
+                                            <div className="member-name" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedProject.owner?.name}</div>
+                                            <div className="member-email" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{selectedProject.owner?.email}</div>
+                                        </div>
+                                        <span className="badge badge-success">Owner</span>
+                                    </div>
+                                </div>
+
+                                <div className="members-section" style={{ padding: '0 1.5rem' }}>
+                                    <h4 className="members-section-title">
+                                        <span>👥 Team Members ({selectedProject.members?.length || 0})</span>
+                                    </h4>
+                                    {(!selectedProject.members || selectedProject.members.length === 0) ? (
+                                        <div className="admin-empty" style={{ padding: '2rem 1rem' }}>
+                                            <p>No team members yet</p>
+                                        </div>
+                                    ) : (
+                                        <div className="members-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {selectedProject.members.map(member => (
+                                                <div key={member.user?._id || member._id} className="member-card" style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                                    <div className="member-avatar" style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #22c55e, #14b8a6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', marginRight: '1rem' }}>
+                                                        {member.user?.avatar ? (
+                                                            <img src={member.user.avatar} alt={member.user?.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                                                        ) : (
+                                                            member.user?.name?.charAt(0).toUpperCase() || '?'
+                                                        )}
+                                                    </div>
+                                                    <div className="member-info" style={{ flex: 1 }}>
+                                                        <div className="member-name" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{member.user?.name || 'Unknown User'}</div>
+                                                        <div className="member-email" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{member.user?.email || ''}</div>
+                                                    </div>
+                                                    <span className={`badge badge-primary`} style={{ marginRight: '12px' }}>
+                                                        {member.role || 'Member'}
+                                                    </span>
+                                                    <button
+                                                        className="btn-icon btn-icon-danger btn-icon-sm"
+                                                        onClick={() => handleRemoveMemberFromProject(selectedProject._id, member.user?._id)}
+                                                        title="Remove member"
+                                                        disabled={membersLoading}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

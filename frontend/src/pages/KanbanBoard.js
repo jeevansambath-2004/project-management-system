@@ -466,14 +466,19 @@ const KanbanBoard = () => {
                                 </div>
                                 <div className="form-group">
                                     <label>Story Points</label>
-                                    <input
-                                        type="number"
+                                    <select
                                         className="input"
-                                        min="0"
-                                        max="100"
                                         value={formData.storyPoints}
                                         onChange={(e) => setFormData({ ...formData, storyPoints: parseInt(e.target.value) || 0 })}
-                                    />
+                                    >
+                                        <option value="0">0</option>
+                                        <option value="1">1</option>
+                                        <option value="2">2</option>
+                                        <option value="3">3</option>
+                                        <option value="5">5</option>
+                                        <option value="8">8</option>
+                                        <option value="13">13</option>
+                                    </select>
                                 </div>
                             </div>
                             <div className="form-group">

@@ -18,6 +18,7 @@ import ScrumBoard from '../pages/ScrumBoard';
 import AdminPanel from '../pages/AdminPanel';
 import AdminAccess from '../pages/AdminAccess';
 import TeamProgress from '../pages/TeamProgress';
+import ProductivityDashboard from '../pages/ProductivityDashboard';
 
 // Components
 import PrivateRoute from '../components/PrivateRoute';
@@ -59,6 +60,9 @@ const AppRoutes = () => {
             } />
             <Route path="/team-progress" element={
                 <PrivateRoute><TeamProgress /></PrivateRoute>
+            } />
+            <Route path="/productivity" element={
+                <PrivateRoute><ProductivityDashboard /></PrivateRoute>
             } />
             <Route path="/team-progress/:projectId" element={
                 <PrivateRoute><TeamProgress /></PrivateRoute>

@@ -32,6 +32,7 @@ const Navbar = () => {
                             <Link to="/dashboard" className="navbar-link">Dashboard</Link>
                             <Link to="/projects" className="navbar-link">Projects</Link>
                             <Link to="/tasks" className="navbar-link">Tasks</Link>
+                            <Link to="/productivity" className="navbar-link">Productivity</Link>
                             <Link to="/messages" className="navbar-link">Messages</Link>
                             {user?.role === 'admin' && (
                                 <>

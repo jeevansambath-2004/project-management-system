@@ -49,6 +49,25 @@ exports.getAdminStats = async (req, res) => {
         // Admin count
         const adminCount = await User.countDocuments({ role: 'admin' });
 
+        // System-wide activity (last 9 months)
+        const nineMonthsAgo = new Date();
+        nineMonthsAgo.setMonth(nineMonthsAgo.getMonth() - 9);
+        const systemActivity = await Task.aggregate([
+            { $match: { status: 'done', completedAt: { $gte: nineMonthsAgo } } },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
+                    count: { $sum: 1 },
+                    points: { $sum: { $ifNull: ['$storyPoints', 0] } }
+                }
+            },
+            { $sort: { '_id': 1 } }
+        ]).then(results => results.map(r => ({
+            date: r._id,
+            count: r.count,
+            points: r.points
+        })));
+
         res.json({
             success: true,
             data: {
@@ -61,7 +80,8 @@ exports.getAdminStats = async (req, res) => {
                 usersByProvider,
                 userGrowth,
                 recentUsers,
-                recentProjects
+                recentProjects,
+                systemActivity
             }
         });
     } catch (error) {

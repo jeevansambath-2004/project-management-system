@@ -142,7 +142,7 @@ exports.removeMember = async (req, res) => {
         }
 
         project.members = project.members.filter(
-            m => m.user.toString() !== req.params.userId
+            m => m.user && m.user.toString() !== req.params.userId
         );
         await project.save();
 
