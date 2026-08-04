@@ -59,6 +59,29 @@ const taskSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    // Stage approval workflow fields
+    approvalStatus: {
+        type: String,
+        enum: ['none', 'pending', 'approved', 'rejected'],
+        default: 'none'
+    },
+    requestedStatus: {
+        type: String,
+        enum: ['todo', 'in-progress', 'review', 'done', null],
+        default: null
+    },
+    previousStatus: {
+        type: String,
+        enum: ['todo', 'in-progress', 'review', 'done', null],
+        default: null
+    },
+    approvalRequestedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    approvalRequestedAt: {
+        type: Date
+    },
     createdAt: {
         type: Date,
         default: Date.now

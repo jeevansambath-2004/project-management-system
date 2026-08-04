@@ -7,7 +7,9 @@ const {
     startConversation,
     getOrCreateProjectConversation,
     markAsRead,
-    deleteMessage
+    deleteMessage,
+    votePoll,
+    toggleReaction
 } = require('../controllers/messageController');
 const { protect } = require('../middleware/auth');
 
@@ -21,6 +23,8 @@ router.route('/:conversationId')
     .get(getMessages)
     .post(sendMessage);
 
+router.post('/:messageId/vote', votePoll);
+router.post('/:messageId/react', toggleReaction);
 router.patch('/:conversationId/read', markAsRead);
 router.delete('/:messageId', deleteMessage);
 

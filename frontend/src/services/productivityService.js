@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api/productivity/';
+const API_URL = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api') + '/productivity/';
 
 const getLeaderboard = () => {
     return axios.get(API_URL + 'leaderboard', {

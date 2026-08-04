@@ -32,24 +32,6 @@
     gap: var(--spacing-3);
 }
 
-.project-filter {
-    padding: var(--spacing-3) var(--spacing-4);
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    color: var(--text-primary);
-    font-size: var(--text-sm);
-    min-width: 180px;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.project-filter:hover,
-.project-filter:focus {
-    border-color: var(--primary-500);
-    background: var(--bg-card-hover);
-}
-
 /* Role Indicator */
 .role-indicator {
     padding: 6px 14px;
@@ -351,3 +333,39 @@
 .column-content::-webkit-scrollbar-thumb:hover {
     background: var(--gray-600);
 }
+
+/* ========================================
+   Stage Approval Workflow Styles
+   ======================================== */
+
+/* Pending Approvals Badge in Header */
+.pending-approvals-badge {
+    padding: 6px 14px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(234, 88, 12, 0.2));
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.2);
+    }
+
+    50% {
+        box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.3);
+    }
+}
+
+/* Redundant styles removed (moved to Pages.css) */
+

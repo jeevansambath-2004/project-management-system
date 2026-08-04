@@ -13,7 +13,11 @@ const {
     getBacklogTasks,
     getTasksBySprint,
     assignToSprint,
-    getTeamProgress
+    getTeamProgress,
+    requestStageChange,
+    approveStageChange,
+    rejectStageChange,
+    getPendingApprovals
 } = require('../controllers/taskController');
 const { protect } = require('../middleware/auth');
 
@@ -28,6 +32,7 @@ router.get('/project/:projectId', getTasksByProject);
 router.get('/backlog/:projectId', getBacklogTasks);
 router.get('/sprint/:sprintId', getTasksBySprint);
 router.get('/team-progress/:projectId', getTeamProgress);
+router.get('/pending-approvals/:projectId', getPendingApprovals);
 
 router.route('/:id')
     .get(getTask)
@@ -37,7 +42,8 @@ router.route('/:id')
 router.patch('/:id/status', updateTaskStatus);
 router.patch('/:id/assign', assignTask);
 router.patch('/:id/sprint', assignToSprint);
+router.patch('/:id/request-stage-change', requestStageChange);
+router.patch('/:id/approve-stage', approveStageChange);
+router.patch('/:id/reject-stage', rejectStageChange);
 
 module.exports = router;
-
-

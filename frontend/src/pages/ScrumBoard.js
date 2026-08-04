@@ -14,6 +14,13 @@ const STATUSES = [
     { id: 'done', title: 'Done', icon: '✅' }
 ];
 
+const STATUS_LABELS = {
+    'todo': 'To Do',
+    'in-progress': 'In Progress',
+    'review': 'Review',
+    'done': 'Done'
+};
+
 const ScrumBoard = () => {
     const { user } = useAuth();
     const [projects, setProjects] = useState([]);
@@ -32,6 +39,18 @@ const ScrumBoard = () => {
     const [editingTask, setEditingTask] = useState(null);
     const [saving, setSaving] = useState(false);
     const [projectRole, setProjectRole] = useState(null);
+    const [pendingCount, setPendingCount] = useState(0);
+
+    // Filters state
+    const [showFilters, setShowFilters] = useState(false);
+    const [filters, setFilters] = useState({
+        search: '',
+        assignees: [],
+        priorities: [],
+        statuses: [],
+        storyPoints: [],
+        due: ''
+    });
 
     // Check if user is admin/owner
     const isProjectAdmin = user?.role === 'admin' || projectRole === 'owner' || projectRole === 'admin';
@@ -87,6 +106,25 @@ const ScrumBoard = () => {
         }
     }, [selectedProject]);
 
+    // Count pending approvals
+    useEffect(() => {
+        const fetchPendingCount = async () => {
+            if (isProjectAdmin && selectedProject) {
+                try {
+                    const res = await taskService.getPendingApprovals(selectedProject);
+                    setPendingCount(res.count || 0);
+                } catch {
+                    setPendingCount(0);
+                }
+            } else {
+                setPendingCount(0);
+            }
+        };
+        if (isProjectAdmin) {
+            fetchPendingCount();
+        }
+    }, [selectedProject, isProjectAdmin, sprintTasks, backlogTasks]);
+
     const fetchProjects = async () => {
         try {
             const response = await projectService.getAll();
@@ -127,11 +165,71 @@ const ScrumBoard = () => {
         }
     };
 
+    // Filter logic helper
+    const applyFilters = (task) => {
+        // Search filter (Task Name)
+        if (filters.search && !task.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
+        
+        // Assignee filter (Multiple)
+        if (filters.assignees.length > 0) {
+            const assigneeId = task.assignee?._id || task.assignee;
+            if (!filters.assignees.includes(assigneeId)) return false;
+        }
+        
+        // Priority filter (Multiple)
+        if (filters.priorities.length > 0 && !filters.priorities.includes(task.priority)) return false;
+        
+        // Status filter (Multiple)
+        if (filters.statuses.length > 0 && !filters.statuses.includes(task.status)) return false;
+        
+        // Story Points filter (Multiple)
+        if (filters.storyPoints.length > 0 && !filters.storyPoints.includes(task.storyPoints?.toString())) return false;
+        
+        // Due Date filter
+        if (filters.due && task.dueDate) {
+            const now = new Date();
+            const taskDate = new Date(task.dueDate);
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const taskDay = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+            
+            if (filters.due === 'overdue') {
+                if (taskDay >= today || task.status === 'done') return false;
+            } else if (filters.due === 'today') {
+                if (taskDay.getTime() !== today.getTime()) return false;
+            } else if (filters.due === 'thisWeek') {
+                const nextWeek = new Date(today);
+                nextWeek.setDate(today.getDate() + 7);
+                if (taskDay < today || taskDay > nextWeek) return false;
+            }
+        } else if (filters.due && !task.dueDate) {
+            return false;
+        }
+
+        return true;
+    };
+
+    const filteredSprintTasks = sprintTasks.filter(applyFilters);
+    const filteredBacklogTasks = backlogTasks.filter(applyFilters);
+
+    // Filter uniquely by current projects tasks assignees
+    const uniqueAssignees = Array.from(new Map([...sprintTasks, ...backlogTasks]
+        .filter(t => t.assignee)
+        .map(t => {
+            const id = t.assignee._id || t.assignee;
+            const name = t.assignee.name || 'Unknown User';
+            return [id, { _id: id, name }];
+        })).values());
+
     const getTasksByStatus = useCallback((status) => {
-        return sprintTasks.filter(task => task.status === status);
-    }, [sprintTasks]);
+        return filteredSprintTasks.filter(task => task.status === status);
+    }, [filteredSprintTasks]);
 
     const handleDragStart = (e, task) => {
+        // Prevent dragging if task has pending approval (for members)
+        if (!isProjectAdmin && task.approvalStatus === 'pending') {
+            e.preventDefault();
+            return;
+        }
         e.dataTransfer.setData('taskId', task._id);
         e.target.classList.add('dragging');
     };
@@ -147,21 +245,74 @@ const ScrumBoard = () => {
 
         if (!task || task.status === newStatus) return;
 
-        // Optimistic update
-        setSprintTasks(prev => prev.map(t =>
-            t._id === taskId ? { ...t, status: newStatus } : t
-        ));
+        if (isProjectAdmin) {
+            // Admin: update status directly (optimistic update)
+            setSprintTasks(prev => prev.map(t =>
+                t._id === taskId ? { ...t, status: newStatus } : t
+            ));
 
-        try {
-            await taskService.updateStatus(taskId, newStatus);
-        } catch (error) {
-            console.error('Error updating task:', error);
-            fetchProjectData();
+            try {
+                await taskService.updateStatus(taskId, newStatus);
+            } catch (error) {
+                console.error('Error updating task:', error);
+                fetchProjectData();
+            }
+        } else {
+            // Member: create approval request
+            try {
+                const res = await taskService.updateStatus(taskId, newStatus);
+                if (res.message) {
+                    alert(res.message);
+                }
+                fetchProjectData();
+            } catch (error) {
+                console.error('Error requesting stage change:', error);
+                alert(error.response?.data?.message || 'Failed to request stage change');
+            }
         }
     };
 
     const handleDragOver = (e) => {
         e.preventDefault();
+    };
+
+    // Handle approval action (admin only)
+    const handleApproval = async (e, taskId, action) => {
+        e.stopPropagation();
+
+        // Optimistic update
+        const updateTaskInList = (list) => list.map(t => 
+            t._id === taskId 
+                ? { 
+                    ...t, 
+                    approvalStatus: 'none', 
+                    status: action === 'approve' ? (t.requestedStatus || t.status) : t.status,
+                    requestedStatus: null
+                  } 
+                : t
+        );
+
+        setSprintTasks(prev => updateTaskInList(prev));
+        setBacklogTasks(prev => updateTaskInList(prev));
+
+        try {
+            if (action === 'approve') {
+                await taskService.approveStage(taskId);
+            } else if (action === 'reject') {
+                await taskService.rejectStage(taskId);
+            }
+            fetchProjectData();
+        } catch (error) {
+            console.error('Error processing approval:', error);
+            alert(error.response?.data?.message || 'Failed to process approval');
+            fetchProjectData(); // Rollback
+        }
+    };
+
+    // Get the next possible statuses for a task
+    const getNextStatuses = (currentStatus) => {
+        const statusOrder = ['todo', 'in-progress', 'review', 'done'];
+        return statusOrder.filter(s => s !== currentStatus);
     };
 
     // Sprint Modal Functions
@@ -268,11 +419,16 @@ const ScrumBoard = () => {
         e.preventDefault();
         try {
             setSaving(true);
+            
+            const taskData = { ...taskForm };
+            if (!taskData.assignee) delete taskData.assignee;
+            if (!taskData.dueDate) delete taskData.dueDate;
+            
             if (editingTask) {
-                await taskService.update(editingTask._id, taskForm);
+                await taskService.update(editingTask._id, taskData);
             } else {
                 await taskService.create({
-                    ...taskForm,
+                    ...taskData,
                     project: selectedProject,
                     sprint: view === 'sprint' && activeSprint ? activeSprint._id : undefined
                 });
@@ -281,7 +437,7 @@ const ScrumBoard = () => {
             fetchProjectData();
         } catch (error) {
             console.error('Error saving task:', error);
-            alert('Failed to save task');
+            alert(error.response?.data?.message || 'Failed to save task');
         } finally {
             setSaving(false);
         }
@@ -321,13 +477,52 @@ const ScrumBoard = () => {
 
     // Stats
     const getSprintStats = () => {
-        const total = sprintTasks.length;
-        const completed = sprintTasks.filter(t => t.status === 'done').length;
-        const totalPoints = sprintTasks.reduce((sum, t) => sum + (t.storyPoints || 0), 0);
-        const completedPoints = sprintTasks.filter(t => t.status === 'done')
+        const total = filteredSprintTasks.length;
+        const completed = filteredSprintTasks.filter(t => t.status === 'done').length;
+        const totalPoints = filteredSprintTasks.reduce((sum, t) => sum + (t.storyPoints || 0), 0);
+        const completedPoints = filteredSprintTasks.filter(t => t.status === 'done')
             .reduce((sum, t) => sum + (t.storyPoints || 0), 0);
 
         return { total, completed, totalPoints, completedPoints };
+    };
+
+    // Compute story points per member from sprint tasks
+    const getMemberPoints = () => {
+        const membersMap = {};
+        filteredSprintTasks.forEach(task => {
+            if (!task.assignee) return;
+            const id = task.assignee._id || task.assignee;
+            if (!membersMap[id]) {
+                membersMap[id] = {
+                    user: task.assignee,
+                    totalPoints: 0,
+                    earnedPoints: 0, // in-progress + review + done
+                    donePoints: 0,
+                    inProgressPoints: 0,
+                    reviewPoints: 0,
+                    todoPoints: 0,
+                    totalTasks: 0,
+                    doneTasks: 0
+                };
+            }
+            const sp = task.storyPoints || 0;
+            membersMap[id].totalPoints += sp;
+            membersMap[id].totalTasks += 1;
+            if (task.status === 'done') {
+                membersMap[id].donePoints += sp;
+                membersMap[id].earnedPoints += sp;
+                membersMap[id].doneTasks += 1;
+            } else if (task.status === 'in-progress') {
+                membersMap[id].inProgressPoints += sp;
+                membersMap[id].earnedPoints += sp;
+            } else if (task.status === 'review') {
+                membersMap[id].reviewPoints += sp;
+                membersMap[id].earnedPoints += sp;
+            } else {
+                membersMap[id].todoPoints += sp;
+            }
+        });
+        return Object.values(membersMap).sort((a, b) => b.earnedPoints - a.earnedPoints);
     };
 
     const getDaysRemaining = () => {
@@ -341,6 +536,7 @@ const ScrumBoard = () => {
     const stats = getSprintStats();
     const daysRemaining = getDaysRemaining();
     const progress = stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
+    const memberPoints = getMemberPoints();
 
     return (
         <div className="page">
@@ -353,6 +549,130 @@ const ScrumBoard = () => {
                             <p className="scrum-subtitle">Manage sprints and track team velocity</p>
                         </div>
                         <div className="scrum-header-right">
+                            <div className="filter-container-wrapper">
+                                <button 
+                                    className={`btn btn-secondary filter-btn ${showFilters ? 'active' : ''}`}
+                                    onClick={() => setShowFilters(!showFilters)}
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                                    </svg>
+                                    Filters {Object.values(filters).some(f => Array.isArray(f) ? f.length > 0 : f !== '') && <span className="filter-dot"></span>}
+                                </button>
+                                
+                                {showFilters && (
+                                    <div className="filter-dropdown-content">
+                                        <div className="filter-section">
+                                            <label>Search Task</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Task name..."
+                                                value={filters.search}
+                                                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                                                className="filter-input"
+                                            />
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Assigned To</label>
+                                            <div className="filter-options">
+                                                {uniqueAssignees.length > 0 ? (
+                                                    uniqueAssignees.map(user => (
+                                                        <label key={user._id} className="filter-checkbox">
+                                                            <input 
+                                                                type="checkbox"
+                                                                checked={filters.assignees.includes(user._id)}
+                                                                onChange={(e) => {
+                                                                    const newAssignees = e.target.checked 
+                                                                        ? [...filters.assignees, user._id]
+                                                                        : filters.assignees.filter(x => x !== user._id);
+                                                                    setFilters({ ...filters, assignees: newAssignees });
+                                                                }}
+                                                            />
+                                                            {user.name}
+                                                        </label>
+                                                    ))
+                                                ) : (
+                                                    <span className="no-filter-options">No assignees found</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="filter-section">
+                                            <label>Priority</label>
+                                            <div className="filter-options">
+                                                {['high', 'medium', 'low'].map(p => (
+                                                    <label key={p} className="filter-checkbox">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={filters.priorities.includes(p)}
+                                                            onChange={(e) => {
+                                                                const newPriorities = e.target.checked 
+                                                                    ? [...filters.priorities, p]
+                                                                    : filters.priorities.filter(x => x !== p);
+                                                                setFilters({ ...filters, priorities: newPriorities });
+                                                            }}
+                                                        />
+                                                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Story Points</label>
+                                            <div className="filter-options">
+                                                {['0', '1', '2', '3', '5', '8', '13'].map(sp => (
+                                                    <label key={sp} className="filter-checkbox">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={filters.storyPoints.includes(sp)}
+                                                            onChange={(e) => {
+                                                                const newSP = e.target.checked 
+                                                                    ? [...filters.storyPoints, sp]
+                                                                    : filters.storyPoints.filter(x => x !== sp);
+                                                                setFilters({ ...filters, storyPoints: newSP });
+                                                            }}
+                                                        />
+                                                        {sp}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Due Date</label>
+                                            <select 
+                                                className="filter-input"
+                                                value={filters.due}
+                                                onChange={(e) => setFilters({ ...filters, due: e.target.value })}
+                                            >
+                                                <option value="">Any time</option>
+                                                <option value="overdue">Overdue</option>
+                                                <option value="today">Due Today</option>
+                                                <option value="thisWeek">Due this week</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="filter-footer">
+                                            <button 
+                                                className="btn btn-muted btn-sm"
+                                                onClick={() => setFilters({
+                                                    search: '',
+                                                    assignees: [],
+                                                    priorities: [],
+                                                    statuses: [],
+                                                    storyPoints: [],
+                                                    due: ''
+                                                })}
+                                            >
+                                                Reset Filters
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <select
                                 className="project-filter"
                                 value={selectedProject || ''}
@@ -393,7 +713,7 @@ const ScrumBoard = () => {
                                         className={`toggle-btn ${view === 'backlog' ? 'active' : ''}`}
                                         onClick={() => setView('backlog')}
                                     >
-                                        📋 Backlog ({backlogTasks.length})
+                                        📋 Backlog ({filteredBacklogTasks.length})
                                     </button>
                                 </div>
                                 <div className="scrum-actions">
@@ -415,6 +735,11 @@ const ScrumBoard = () => {
                                     {selectedProject && projectRole && (
                                         <span className={`role-indicator ${isProjectAdmin ? 'role-admin' : 'role-member'}`}>
                                             {isProjectAdmin ? '🛡️ Admin' : '👤 Member'}
+                                        </span>
+                                    )}
+                                    {isProjectAdmin && pendingCount > 0 && (
+                                        <span className="pending-approvals-badge">
+                                            ⏳ {pendingCount} Pending
                                         </span>
                                     )}
                                 </div>
@@ -510,6 +835,50 @@ const ScrumBoard = () => {
                                         </div>
                                     )}
 
+                                    {/* Member Story Points */}
+                                    {activeSprint && memberPoints.length > 0 && (
+                                        <div className="member-points-section">
+                                            <h3 className="member-points-title">📊 Member Story Points</h3>
+                                            <div className="member-points-grid">
+                                                {memberPoints.map(mp => (
+                                                    <div key={mp.user._id || mp.user} className="member-points-card">
+                                                        <div className="mp-header">
+                                                            <div className="mp-user-info">
+                                                                {mp.user.avatar
+                                                                    ? <img src={mp.user.avatar} alt={mp.user.name} className="mp-avatar" />
+                                                                    : <span className="mp-avatar mp-avatar-initial">{mp.user.name?.charAt(0).toUpperCase()}</span>
+                                                                }
+                                                                <span className="mp-name">{mp.user.name || 'Unknown'}</span>
+                                                            </div>
+                                                            <div className="mp-earned-badge">
+                                                                <span className="mp-earned-num">{mp.earnedPoints}</span>
+                                                                <span className="mp-earned-label">SP</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="mp-progress-bar">
+                                                            <div className="mp-progress-track">
+                                                                {mp.totalPoints > 0 && (
+                                                                    <>
+                                                                        <div className="mp-bar-done" style={{ width: `${(mp.donePoints / mp.totalPoints) * 100}%` }} title={`Done: ${mp.donePoints} SP`}></div>
+                                                                        <div className="mp-bar-review" style={{ width: `${(mp.reviewPoints / mp.totalPoints) * 100}%` }} title={`Review: ${mp.reviewPoints} SP`}></div>
+                                                                        <div className="mp-bar-inprogress" style={{ width: `${(mp.inProgressPoints / mp.totalPoints) * 100}%` }} title={`In Progress: ${mp.inProgressPoints} SP`}></div>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mp-breakdown">
+                                                            <span className="mp-stat" title="Done">✅ {mp.donePoints}</span>
+                                                            <span className="mp-stat" title="Review">👀 {mp.reviewPoints}</span>
+                                                            <span className="mp-stat" title="In Progress">🔄 {mp.inProgressPoints}</span>
+                                                            <span className="mp-stat" title="To Do">📋 {mp.todoPoints}</span>
+                                                            <span className="mp-stat-total">/ {mp.totalPoints} SP</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Sprint Board */}
                                     {activeSprint && (
                                         <div className="sprint-board">
@@ -529,12 +898,42 @@ const ScrumBoard = () => {
                                                         {getTasksByStatus(status.id).map(task => (
                                                             <div
                                                                 key={task._id}
-                                                                className="sprint-task-card"
-                                                                draggable
+                                                                className={`sprint-task-card ${task.approvalStatus === 'pending' ? 'has-pending-approval' : ''}`}
+                                                                draggable={!(task.approvalStatus === 'pending' && !isProjectAdmin)}
                                                                 onDragStart={(e) => handleDragStart(e, task)}
                                                                 onDragEnd={handleDragEnd}
                                                                 onClick={() => isProjectAdmin && openTaskModal(task)}
                                                             >
+                                                                {/* Pending approval badge */}
+                                                                {task.approvalStatus === 'pending' && (
+                                                                    <div className="approval-pending-banner">
+                                                                        <div className="approval-info">
+                                                                            <span className="approval-icon">⏳</span>
+                                                                            <span className="approval-text">
+                                                                                {task.approvalRequestedBy?.name || 'Member'} → <strong>{STATUS_LABELS[task.requestedStatus] || task.requestedStatus}</strong>
+                                                                            </span>
+                                                                        </div>
+                                                                        {isProjectAdmin && (
+                                                                            <div className="approval-actions">
+                                                                                <button
+                                                                                    className="btn-approve"
+                                                                                    onClick={(e) => handleApproval(e, task._id, 'approve')}
+                                                                                    title="Approve Move"
+                                                                                >
+                                                                                    Approve
+                                                                                </button>
+                                                                                <button
+                                                                                    className="btn-reject"
+                                                                                    onClick={(e) => handleApproval(e, task._id, 'reject')}
+                                                                                    title="Reject Move"
+                                                                                >
+                                                                                    Reject
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+
                                                                 <div className="task-card-top">
                                                                     <span className={`priority-dot priority-${task.priority}`}></span>
                                                                     {task.storyPoints > 0 && (
@@ -570,6 +969,46 @@ const ScrumBoard = () => {
                                                                         ↩
                                                                     </button>
                                                                 </div>
+
+                                                                {/* Member: show "Move to" buttons if no pending approval */}
+                                                                {!isProjectAdmin && task.approvalStatus !== 'pending' && (
+                                                                    <div className="member-move-actions">
+                                                                        <span className="move-label">Move to:</span>
+                                                                        <select
+                                                                            className="member-status-select"
+                                                                            value={task.status}
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                            onChange={(e) => {
+                                                                                e.stopPropagation();
+                                                                                const targetStatus = e.target.value;
+                                                                                if (targetStatus !== task.status) {
+                                                                                    taskService.updateStatus(task._id, targetStatus)
+                                                                                        .then(res => {
+                                                                                            if (res.message) alert(res.message);
+                                                                                            fetchProjectData();
+                                                                                        })
+                                                                                        .catch(err => {
+                                                                                            alert(err.response?.data?.message || 'Failed to request');
+                                                                                        });
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            <option value={task.status} disabled>{STATUS_LABELS[task.status]}</option>
+                                                                            {getNextStatuses(task.status).map(targetStatus => (
+                                                                                <option key={targetStatus} value={targetStatus}>
+                                                                                    {STATUS_LABELS[targetStatus]}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Member: waiting message if pending */}
+                                                                {!isProjectAdmin && task.approvalStatus === 'pending' && (
+                                                                    <div className="member-waiting-badge">
+                                                                        ⏳ Waiting for admin approval
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ))}
                                                     </div>
@@ -583,19 +1022,22 @@ const ScrumBoard = () => {
                                 <div className="backlog-section">
                                     <div className="backlog-header">
                                         <h2>Product Backlog</h2>
-                                        <span className="backlog-count">{backlogTasks.length} items</span>
+                                        <span className="backlog-count">{filteredBacklogTasks.length} items</span>
                                     </div>
-                                    {backlogTasks.length === 0 ? (
+                                    {filteredBacklogTasks.length === 0 ? (
                                         <div className="empty-backlog">
-                                            <p>No items in backlog. Create tasks to add to the backlog.</p>
-                                            <button className="btn btn-primary" onClick={() => openTaskModal()}>
-                                                + Add Task
-                                            </button>
+                                            <p>No tasks found in backlog matching filters.</p>
+                                            {/* Original button for adding task if backlog was empty, now only if no tasks match filters */}
+                                            {backlogTasks.length === 0 && (
+                                                <button className="btn btn-primary" onClick={() => openTaskModal()}>
+                                                    + Add Task
+                                                </button>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="backlog-list">
-                                            {backlogTasks.map(task => (
-                                                <div key={task._id} className="backlog-item">
+                                            {filteredBacklogTasks.map(task => (
+                                                <div key={task._id} className={`backlog-item ${task.approvalStatus === 'pending' ? 'has-pending-approval' : ''}`}>
                                                     <div className="backlog-item-left">
                                                         <span className={`priority-dot priority-${task.priority}`}></span>
                                                         <div className="backlog-item-info">
@@ -610,6 +1052,36 @@ const ScrumBoard = () => {
                                                         <span className={`status-badge status-${task.status}`}>
                                                             {task.status.replace('-', ' ')}
                                                         </span>
+
+                                                        {/* Approval pending indicator in backlog */}
+                                                        {task.approvalStatus === 'pending' && (
+                                                            <div className="backlog-approval-indicator">
+                                                                <span className="approval-badge-inline">
+                                                                    ⏳ {task.approvalRequestedBy?.name || 'Member'} → {STATUS_LABELS[task.requestedStatus]}
+                                                                </span>
+                                                                {isProjectAdmin && (
+                                                                    <div className="approval-actions" style={{ marginLeft: '10px' }}>
+                                                                        <button
+                                                                            className="btn-approve btn-approve-sm"
+                                                                            onClick={(e) => handleApproval(e, task._id, 'approve')}
+                                                                            title="Approve Move"
+                                                                            style={{ padding: '2px 8px', fontSize: '10px' }}
+                                                                        >
+                                                                            Approve
+                                                                        </button>
+                                                                        <button
+                                                                            className="btn-reject btn-reject-sm"
+                                                                            onClick={(e) => handleApproval(e, task._id, 'reject')}
+                                                                            title="Reject Move"
+                                                                            style={{ padding: '2px 8px', fontSize: '10px' }}
+                                                                        >
+                                                                            Reject
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
                                                         <div className="backlog-item-actions">
                                                             {isProjectAdmin && activeSprint && (
                                                                 <button

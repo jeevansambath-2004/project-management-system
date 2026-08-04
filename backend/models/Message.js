@@ -3,8 +3,25 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
     content: {
         type: String,
-        required: [true, 'Message content is required'],
+        required: function() {
+            return !this.attachment && !this.poll; // content is required only if there is no attachment and no poll
+        },
         maxlength: [2000, 'Message cannot be more than 2000 characters']
+    },
+    attachment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'File'
+    },
+    reactions: [{
+        emoji: { type: String, required: true },
+        users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+    }],
+    poll: {
+        question: String,
+        options: [{
+            text: String,
+            votes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+        }]
     },
     sender: {
         type: mongoose.Schema.Types.ObjectId,

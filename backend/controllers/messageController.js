@@ -26,8 +26,9 @@ exports.getConversations = async (req, res) => {
 // @route   GET /api/messages/:conversationId
 exports.getMessages = async (req, res) => {
     try {
-        const messages = await Message.find({ conversation: req.params.conversationId })
+            const messages = await Message.find({ conversation: req.params.conversationId })
             .populate('sender', 'name email avatar')
+            .populate('attachment')
             .sort('createdAt');
 
         res.json({ success: true, data: messages });
@@ -40,10 +41,12 @@ exports.getMessages = async (req, res) => {
 // @route   POST /api/messages/:conversationId
 exports.sendMessage = async (req, res) => {
     try {
-        const { content } = req.body;
+        const { content, attachment, poll } = req.body;
 
         const message = await Message.create({
             content,
+            attachment: attachment || null,
+            poll: poll || null,
             sender: req.user.id,
             conversation: req.params.conversationId,
             readBy: [req.user.id]
@@ -56,7 +59,8 @@ exports.sendMessage = async (req, res) => {
         });
 
         const populatedMessage = await Message.findById(message._id)
-            .populate('sender', 'name email avatar');
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
 
         res.status(201).json({ success: true, data: populatedMessage });
     } catch (error) {
@@ -68,7 +72,7 @@ exports.sendMessage = async (req, res) => {
 // @route   POST /api/messages/new
 exports.startConversation = async (req, res) => {
     try {
-        const { recipientId, content } = req.body;
+        const { recipientId, content, attachment, poll } = req.body;
 
         // Check if conversation exists
         let conversation = await Conversation.findOne({
@@ -84,6 +88,8 @@ exports.startConversation = async (req, res) => {
         // Create message
         const message = await Message.create({
             content,
+            attachment: attachment || null,
+            poll: poll || null,
             sender: req.user.id,
             conversation: conversation._id,
             readBy: [req.user.id]
@@ -194,6 +200,104 @@ exports.deleteMessage = async (req, res) => {
 
         await message.deleteOne();
         res.json({ success: true, message: 'Message deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Vote in a message poll
+// @route   POST /api/messages/:messageId/vote
+exports.votePoll = async (req, res) => {
+    try {
+        const { optionId } = req.body;
+        const message = await Message.findById(req.params.messageId);
+
+        if (!message || !message.poll) {
+            return res.status(404).json({ message: 'Poll not found' });
+        }
+
+        const userId = req.user.id;
+
+        // Find the index of the selected option
+        const optionIndex = message.poll.options.findIndex(opt => opt._id.toString() === optionId);
+
+        if (optionIndex === -1) {
+            return res.status(404).json({ message: 'Poll option not found' });
+        }
+
+        // Toggle behavior: check if already voted for THIS option
+        const alreadyVotedThisOption = message.poll.options[optionIndex].votes.some(
+            v => v.toString() === userId
+        );
+
+        // Clear user's vote from all options in this poll
+        message.poll.options.forEach(opt => {
+            opt.votes = opt.votes.filter(v => v.toString() !== userId);
+        });
+
+        // If user wasn't voted in THIS option, add the vote (toggle on)
+        if (!alreadyVotedThisOption) {
+            message.poll.options[optionIndex].votes.push(userId);
+        }
+
+        await message.save();
+
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
+
+        res.json({ success: true, data: populatedMessage });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Toggle message reaction
+// @route   POST /api/messages/:messageId/react
+exports.toggleReaction = async (req, res) => {
+    try {
+        const { emoji } = req.body;
+        const message = await Message.findById(req.params.messageId);
+
+        if (!message) {
+            return res.status(404).json({ message: 'Message not found' });
+        }
+
+        const userId = req.user.id;
+
+        // Find if this emoji reaction already exists
+        let reaction = message.reactions.find(r => r.emoji === emoji);
+
+        if (reaction) {
+            // Check if user already reacted with this emoji
+            const userIndex = reaction.users.indexOf(userId);
+
+            if (userIndex !== -1) {
+                // Remove reaction if already exists
+                reaction.users.splice(userIndex, 1);
+                // If no users left for this emoji, remove the emoji entirely
+                if (reaction.users.length === 0) {
+                    message.reactions = message.reactions.filter(r => r.emoji !== emoji);
+                }
+            } else {
+                // Add user to existing emoji reaction
+                reaction.users.push(userId);
+            }
+        } else {
+            // Add new emoji reaction
+            message.reactions.push({
+                emoji,
+                users: [userId]
+            });
+        }
+
+        await message.save();
+
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
+
+        res.json({ success: true, data: populatedMessage });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }

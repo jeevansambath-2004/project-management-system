@@ -1,10 +1,12 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import './Navbar.css';
 
 const Navbar = () => {
     const { user, isAuthenticated, logout } = useAuth();
+    const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
 
     const handleLogout = () => {
@@ -36,25 +38,27 @@ const Navbar = () => {
                             <Link to="/messages" className="navbar-link">Messages</Link>
                             {user?.role === 'admin' && (
                                 <>
-                                    <Link to="/team-progress" className="navbar-link" style={{ color: '#10b981' }}>
-                                        📊 Team Progress
-                                    </Link>
                                     <Link to="/admin" className="navbar-link" style={{ color: '#f59e0b' }}>
                                         👑 Admin
                                     </Link>
                                 </>
                             )}
+                            <Link to="/feedback" className="navbar-link">Feedback</Link>
                         </>
                     ) : (
                         <>
                             <a href="#features" className="navbar-link">Features</a>
                             <a href="#pricing" className="navbar-link">Pricing</a>
                             <a href="#about" className="navbar-link">About</a>
+                            <a href="#feedback" className="navbar-link">Feedback</a>
                         </>
                     )}
                 </div>
 
                 <div className="navbar-actions">
+                    <button onClick={toggleTheme} className="btn btn-ghost theme-toggle" aria-label="Toggle theme">
+                        {theme === 'dark' ? '☀️' : '🌙'}
+                    </button>
                     {isAuthenticated ? (
                         <>
                             <Link to="/profile" className="navbar-user">

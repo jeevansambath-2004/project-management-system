@@ -13,6 +13,13 @@ const COLUMNS = [
     { id: 'done', title: 'Done', icon: '✅', color: '#22c55e' }
 ];
 
+const STATUS_LABELS = {
+    'todo': 'To Do',
+    'in-progress': 'In Progress',
+    'review': 'Review',
+    'done': 'Done'
+};
+
 const KanbanBoard = () => {
     const { user } = useAuth();
     const [tasks, setTasks] = useState([]);
@@ -26,6 +33,7 @@ const KanbanBoard = () => {
     const [saving, setSaving] = useState(false);
     const [projectRole, setProjectRole] = useState(null); // 'owner', 'admin', 'member', 'viewer'
     const [projectMembers, setProjectMembers] = useState([]);
+    const [pendingCount, setPendingCount] = useState(0);
     const [formData, setFormData] = useState({
         title: '',
         description: '',
@@ -35,6 +43,17 @@ const KanbanBoard = () => {
         dueDate: '',
         storyPoints: 0,
         assignee: ''
+    });
+
+    // Filters state
+    const [showFilters, setShowFilters] = useState(false);
+    const [filters, setFilters] = useState({
+        search: '',
+        assignees: [],
+        priorities: [],
+        statuses: [],
+        storyPoints: [],
+        due: ''
     });
 
     // Check if user is admin/owner (can create, edit, delete, assign tasks)
@@ -62,6 +81,29 @@ const KanbanBoard = () => {
         };
         fetchRole();
     }, [selectedProject, user]);
+
+    // Count pending approvals for the selected project
+    useEffect(() => {
+        const fetchPendingCount = async () => {
+            if (isProjectAdmin && selectedProject && selectedProject !== 'all') {
+                try {
+                    const res = await taskService.getPendingApprovals(selectedProject);
+                    setPendingCount(res.count || 0);
+                } catch {
+                    setPendingCount(0);
+                }
+            } else {
+                // Count from local tasks for 'all' projects view
+                const pending = tasks.filter(t => t.approvalStatus === 'pending');
+                setPendingCount(pending.length);
+            }
+        };
+        if (isProjectAdmin) {
+            fetchPendingCount();
+        } else {
+            setPendingCount(0);
+        }
+    }, [selectedProject, isProjectAdmin, tasks]);
 
     // Load project members when the project selection in the modal form changes
     useEffect(() => {
@@ -96,9 +138,59 @@ const KanbanBoard = () => {
         }
     };
 
-    const filteredTasks = selectedProject === 'all'
-        ? tasks
-        : tasks.filter(task => task.project?._id === selectedProject);
+    // Extract unique assignees from tasks for the filter
+    const uniqueAssignees = Array.from(new Map(tasks
+        .filter(t => t.assignee)
+        .map(t => {
+            const id = t.assignee._id || t.assignee;
+            const name = t.assignee.name || 'Unknown User';
+            return [id, { _id: id, name }];
+        })).values());
+
+    const filteredTasks = tasks.filter(task => {
+        // Project filter
+        if (selectedProject !== 'all' && task.project?._id !== selectedProject) return false;
+        
+        // Search filter (Task Name)
+        if (filters.search && !task.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
+        
+        // Assignee filter (Multiple)
+        if (filters.assignees.length > 0) {
+            const assigneeId = task.assignee?._id || task.assignee;
+            if (!filters.assignees.includes(assigneeId)) return false;
+        }
+        
+        // Priority filter (Multiple)
+        if (filters.priorities.length > 0 && !filters.priorities.includes(task.priority)) return false;
+        
+        // Status filter (Multiple)
+        if (filters.statuses.length > 0 && !filters.statuses.includes(task.status)) return false;
+        
+        // Story Points filter (Multiple)
+        if (filters.storyPoints.length > 0 && !filters.storyPoints.includes(task.storyPoints?.toString())) return false;
+        
+        // Due Date filter
+        if (filters.due && task.dueDate) {
+            const now = new Date();
+            const taskDate = new Date(task.dueDate);
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const taskDay = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+            
+            if (filters.due === 'overdue') {
+                if (taskDay >= today || task.status === 'done') return false;
+            } else if (filters.due === 'today') {
+                if (taskDay.getTime() !== today.getTime()) return false;
+            } else if (filters.due === 'thisWeek') {
+                const nextWeek = new Date(today);
+                nextWeek.setDate(today.getDate() + 7);
+                if (taskDay < today || taskDay > nextWeek) return false;
+            }
+        } else if (filters.due && !task.dueDate) {
+            return false;
+        }
+
+        return true;
+    });
 
     const getTasksByStatus = useCallback((status) => {
         return filteredTasks
@@ -107,6 +199,11 @@ const KanbanBoard = () => {
     }, [filteredTasks]);
 
     const handleDragStart = (e, task) => {
+        // Prevent dragging if task has pending approval (for members)
+        if (!isProjectAdmin && task.approvalStatus === 'pending') {
+            e.preventDefault();
+            return;
+        }
         setDraggingTask(task);
         e.dataTransfer.effectAllowed = 'move';
         e.target.classList.add('dragging');
@@ -135,20 +232,67 @@ const KanbanBoard = () => {
             return;
         }
 
-        // Optimistic update
-        const updatedTasks = tasks.map(task =>
-            task._id === draggingTask._id
-                ? { ...task, status: newStatus }
-                : task
-        );
-        setTasks(updatedTasks);
+        if (isProjectAdmin) {
+            // Admin: update status directly
+            const updatedTasks = tasks.map(task =>
+                task._id === draggingTask._id
+                    ? { ...task, status: newStatus }
+                    : task
+            );
+            setTasks(updatedTasks);
+
+            try {
+                await taskService.updateStatus(draggingTask._id, newStatus);
+            } catch (error) {
+                console.error('Error updating task:', error);
+                fetchData();
+            }
+        } else {
+            // Member: create approval request
+            try {
+                const res = await taskService.updateStatus(draggingTask._id, newStatus);
+                if (res.message) {
+                    alert(res.message);
+                }
+                fetchData();
+            } catch (error) {
+                console.error('Error requesting stage change:', error);
+                alert(error.response?.data?.message || 'Failed to request stage change');
+            }
+        }
+    };
+
+    // Handle approval action (admin only)
+    const handleApproval = async (e, taskId, action) => {
+        e.stopPropagation();
+
+        // Optimistic update to hide banner immediately
+        const taskToUpdate = tasks.find(t => t._id === taskId);
+        if (taskToUpdate) {
+            const updatedTasks = tasks.map(t => 
+                t._id === taskId 
+                    ? { 
+                        ...t, 
+                        approvalStatus: 'none', 
+                        status: action === 'approve' ? t.requestedStatus : t.status,
+                        requestedStatus: null
+                      } 
+                    : t
+            );
+            setTasks(updatedTasks);
+        }
 
         try {
-            await taskService.updateStatus(draggingTask._id, newStatus);
-        } catch (error) {
-            console.error('Error updating task:', error);
-            // Revert on error
+            if (action === 'approve') {
+                await taskService.approveStage(taskId);
+            } else if (action === 'reject') {
+                await taskService.rejectStage(taskId);
+            }
             fetchData();
+        } catch (error) {
+            console.error('Error processing approval:', error);
+            alert(error.response?.data?.message || 'Failed to process approval');
+            fetchData(); // Rollback on error
         }
     };
 
@@ -235,6 +379,12 @@ const KanbanBoard = () => {
         return { count: columnTasks.length, points: totalPoints };
     };
 
+    // Get the next possible statuses for a task
+    const getNextStatuses = (currentStatus) => {
+        const statusOrder = ['todo', 'in-progress', 'review', 'done'];
+        return statusOrder.filter(s => s !== currentStatus);
+    };
+
     return (
         <div className="page">
             <Navbar />
@@ -246,6 +396,153 @@ const KanbanBoard = () => {
                             <p className="kanban-subtitle">Drag and drop tasks to update their status</p>
                         </div>
                         <div className="kanban-header-right">
+                            <div className="filter-container-wrapper">
+                                <button 
+                                    className={`btn btn-secondary filter-btn ${showFilters ? 'active' : ''}`}
+                                    onClick={() => setShowFilters(!showFilters)}
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                                    </svg>
+                                    Filters {Object.values(filters).some(f => Array.isArray(f) ? f.length > 0 : f !== '') && <span className="filter-dot"></span>}
+                                </button>
+                                
+                                {showFilters && (
+                                    <div className="filter-dropdown-content">
+                                        <div className="filter-section">
+                                            <label>Search Task</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Task name..."
+                                                value={filters.search}
+                                                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                                                className="filter-input"
+                                            />
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Assigned To</label>
+                                            <div className="filter-options">
+                                                {uniqueAssignees.length > 0 ? (
+                                                    uniqueAssignees.map(user => (
+                                                        <label key={user._id} className="filter-checkbox">
+                                                            <input 
+                                                                type="checkbox"
+                                                                checked={filters.assignees.includes(user._id)}
+                                                                onChange={(e) => {
+                                                                    const newAssignees = e.target.checked 
+                                                                        ? [...filters.assignees, user._id]
+                                                                        : filters.assignees.filter(x => x !== user._id);
+                                                                    setFilters({ ...filters, assignees: newAssignees });
+                                                                }}
+                                                            />
+                                                            {user.name}
+                                                        </label>
+                                                    ))
+                                                ) : (
+                                                    <span className="no-filter-options">No assignees found</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="filter-section">
+                                            <label>Priority</label>
+                                            <div className="filter-options">
+                                                {['high', 'medium', 'low'].map(p => (
+                                                    <label key={p} className="filter-checkbox">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={filters.priorities.includes(p)}
+                                                            onChange={(e) => {
+                                                                const newPriorities = e.target.checked 
+                                                                    ? [...filters.priorities, p]
+                                                                    : filters.priorities.filter(x => x !== p);
+                                                                setFilters({ ...filters, priorities: newPriorities });
+                                                            }}
+                                                        />
+                                                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Status</label>
+                                            <div className="filter-options">
+                                                {['todo', 'in-progress', 'review', 'done'].map(s => (
+                                                    <label key={s} className="filter-checkbox">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={filters.statuses.includes(s)}
+                                                            onChange={(e) => {
+                                                                const newStatuses = e.target.checked 
+                                                                    ? [...filters.statuses, s]
+                                                                    : filters.statuses.filter(x => x !== s);
+                                                                setFilters({ ...filters, statuses: newStatuses });
+                                                            }}
+                                                        />
+                                                        {STATUS_LABELS[s]}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Story Points</label>
+                                            <div className="filter-options">
+                                                {['0', '1', '2', '3', '5', '8', '13'].map(sp => (
+                                                    <label key={sp} className="filter-checkbox">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={filters.storyPoints.includes(sp)}
+                                                            onChange={(e) => {
+                                                                const newSP = e.target.checked 
+                                                                    ? [...filters.storyPoints, sp]
+                                                                    : filters.storyPoints.filter(x => x !== sp);
+                                                                setFilters({ ...filters, storyPoints: newSP });
+                                                            }}
+                                                        />
+                                                        {sp}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="filter-section">
+                                            <label>Due Date</label>
+                                            <select 
+                                                className="filter-input"
+                                                value={filters.due}
+                                                onChange={(e) => setFilters({ ...filters, due: e.target.value })}
+                                            >
+                                                <option value="">Any time</option>
+                                                <option value="overdue">Overdue</option>
+                                                <option value="today">Due Today</option>
+                                                <option value="thisWeek">Due this week</option>
+                                            </select>
+                                        </div>
+
+                                        {projects.length > 0 && (
+                                            <div className="filter-footer">
+                                                <button 
+                                                    className="btn btn-muted btn-sm"
+                                                    onClick={() => setFilters({
+                                                        search: '',
+                                                        assignees: [],
+                                                        priorities: [],
+                                                        statuses: [],
+                                                        storyPoints: [],
+                                                        due: ''
+                                                    })}
+                                                >
+                                                    Reset Filters
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
                             <select
                                 className="project-filter"
                                 value={selectedProject}
@@ -261,6 +558,11 @@ const KanbanBoard = () => {
                             {selectedProject !== 'all' && projectRole && (
                                 <span className={`role-indicator ${isProjectAdmin ? 'role-admin' : 'role-member'}`}>
                                     {isProjectAdmin ? '🛡️ Admin' : '👤 Member'}
+                                </span>
+                            )}
+                            {isProjectAdmin && pendingCount > 0 && (
+                                <span className="pending-approvals-badge">
+                                    ⏳ {pendingCount} Pending
                                 </span>
                             )}
                             {isProjectAdmin && (
@@ -306,12 +608,42 @@ const KanbanBoard = () => {
                                             {getTasksByStatus(column.id).map(task => (
                                                 <div
                                                     key={task._id}
-                                                    className="kanban-card"
-                                                    draggable
+                                                    className={`kanban-card ${task.approvalStatus === 'pending' ? 'has-pending-approval' : ''}`}
+                                                    draggable={!(task.approvalStatus === 'pending' && !isProjectAdmin)}
                                                     onDragStart={(e) => handleDragStart(e, task)}
                                                     onDragEnd={handleDragEnd}
                                                     onClick={() => isProjectAdmin && openEditModal(task)}
                                                 >
+                                                    {/* Pending approval badge for this task */}
+                                                    {task.approvalStatus === 'pending' && (
+                                                        <div className="approval-pending-banner">
+                                                            <div className="approval-info">
+                                                                <span className="approval-icon">⏳</span>
+                                                                <span className="approval-text">
+                                                                    {task.approvalRequestedBy?.name || 'Member'} requests move to <strong>{STATUS_LABELS[task.requestedStatus] || task.requestedStatus}</strong>
+                                                                </span>
+                                                            </div>
+                                                            {isProjectAdmin && (
+                                                                <div className="approval-actions">
+                                                                    <button
+                                                                        className="btn-approve"
+                                                                        onClick={(e) => handleApproval(e, task._id, 'approve')}
+                                                                        title="Approve Move"
+                                                                    >
+                                                                        Approve
+                                                                    </button>
+                                                                    <button
+                                                                        className="btn-reject"
+                                                                        onClick={(e) => handleApproval(e, task._id, 'reject')}
+                                                                        title="Reject Move"
+                                                                    >
+                                                                        Reject
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
                                                     <div className="kanban-card-header">
                                                         <span
                                                             className="priority-indicator"
@@ -347,6 +679,47 @@ const KanbanBoard = () => {
                                                             </span>
                                                         )}
                                                     </div>
+
+                                                    {/* Member: show "Request Move" buttons if no pending approval */}
+                                                    {!isProjectAdmin && task.approvalStatus !== 'pending' && (
+                                                        <div className="member-move-actions">
+                                                            <span className="move-label">Move to:</span>
+                                                            <select
+                                                                className="member-status-select"
+                                                                value={task.status}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                onChange={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const targetStatus = e.target.value;
+                                                                    if (targetStatus !== task.status) {
+                                                                        taskService.updateStatus(task._id, targetStatus)
+                                                                            .then(res => {
+                                                                                if (res.message) alert(res.message);
+                                                                                fetchData();
+                                                                            })
+                                                                            .catch(err => {
+                                                                                alert(err.response?.data?.message || 'Failed to request');
+                                                                            });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <option value={task.status} disabled>{STATUS_LABELS[task.status]}</option>
+                                                                {getNextStatuses(task.status).map(targetStatus => (
+                                                                    <option key={targetStatus} value={targetStatus}>
+                                                                        {STATUS_LABELS[targetStatus]}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Member: show waiting message if pending */}
+                                                    {!isProjectAdmin && task.approvalStatus === 'pending' && (
+                                                        <div className="member-waiting-badge">
+                                                            ⏳ Waiting for admin approval
+                                                        </div>
+                                                    )}
+
                                                     {isProjectAdmin && (
                                                         <button
                                                             className="delete-card-btn"
