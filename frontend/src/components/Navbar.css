@@ -154,9 +154,15 @@
     margin-left: 4px;
 }
 
+.super-admin-badge {
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+
 .admin-badge {
-    background: linear-gradient(135deg, #f59e0b, #d97706);
-    color: #000;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: #fff;
 }
 
 .member-badge {

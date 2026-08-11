@@ -46,8 +46,10 @@ exports.getAdminStats = async (req, res) => {
             { $sort: { '_id.year': 1, '_id.month': 1 } }
         ]);
 
-        // Admin count
+        // Count by role
         const adminCount = await User.countDocuments({ role: 'admin' });
+        const teamLeaderCount = await User.countDocuments({ $or: [{ role: 'team_leader' }, { role: 'super_admin' }] });
+        const memberCount = await User.countDocuments({ role: 'user' });
 
         // System-wide activity (last 9 months)
         const nineMonthsAgo = new Date();
@@ -75,6 +77,9 @@ exports.getAdminStats = async (req, res) => {
                 totalProjects,
                 totalTasks,
                 adminCount,
+                teamLeaderCount,
+                superAdminCount: teamLeaderCount,
+                memberCount,
                 tasksByStatus,
                 projectsByStatus,
                 usersByProvider,
@@ -137,8 +142,8 @@ exports.updateUserRole = async (req, res) => {
     try {
         const { role } = req.body;
 
-        if (!['user', 'admin'].includes(role)) {
-            return res.status(400).json({ message: 'Invalid role. Must be user or admin' });
+        if (!['user', 'team_leader', 'admin', 'super_admin'].includes(role)) {
+            return res.status(400).json({ message: 'Invalid role. Must be user, team_leader, or admin' });
         }
 
         // Prevent admin from changing their own role

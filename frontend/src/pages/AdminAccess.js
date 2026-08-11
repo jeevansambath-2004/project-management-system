@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from '../components/ThemeToggle';
 import './AdminAccess.css';
 
 const AdminAccess = () => {
@@ -32,10 +33,10 @@ const AdminAccess = () => {
 
         try {
             const data = await login(formData);
-            if (data.user.role === 'admin') {
+            if (data.user.role === 'team_leader' || data.user.role === 'super_admin' || data.user.role === 'admin') {
                 navigate('/admin');
             } else {
-                setError('Access denied. This login is restricted to administrators only.');
+                setError('Access denied. This portal is restricted to Team Leaders and Administrators.');
                 setLoading(false);
             }
         } catch (err) {
@@ -54,10 +55,10 @@ const AdminAccess = () => {
                 const userInfo = await userInfoResponse.json();
                 
                 const data = await googleLogin(tokenResponse.access_token, userInfo);
-                if (data.user.role === 'admin') {
+                if (data.user.role === 'team_leader' || data.user.role === 'super_admin' || data.user.role === 'admin') {
                     navigate('/admin');
                 } else {
-                    setError('Access denied. Your Google account does not have administrator privileges.');
+                    setError('Access denied. Your Google account does not have Team Leader or Admin privileges.');
                     setLoading(false);
                 }
             } catch (err) {
@@ -72,10 +73,11 @@ const AdminAccess = () => {
         }
     });
 
-    // If already authenticated and is admin, show the "Enter Admin Panel" option
-    if (isAuthenticated && user?.role === 'admin') {
+    // If already authenticated and is team_leader / super_admin / admin
+    if (isAuthenticated && (user?.role === 'team_leader' || user?.role === 'super_admin' || user?.role === 'admin')) {
         return (
             <div className="admin-access-page">
+                <ThemeToggle />
                 <div className="admin-access-bg">
                     <div className="admin-access-glow admin-access-glow-1"></div>
                     <div className="admin-access-glow admin-access-glow-2"></div>
@@ -109,25 +111,25 @@ const AdminAccess = () => {
                         </div>
 
                         <div className="admin-access-header">
-                            <h1 className="admin-access-title">Admin Access Granted</h1>
+                            <h1 className="admin-access-title">Team Leader Access Granted</h1>
                             <p className="admin-access-subtitle">
-                                You are authenticated as an administrator
+                                You are authenticated as a Team Leader
                             </p>
                         </div>
 
                         <div className="admin-access-logged-in">
                             <div className="admin-access-user-info">
                                 <div className="admin-access-avatar">
-                                    {user?.name?.charAt(0).toUpperCase() || 'A'}
+                                    {user?.name?.charAt(0).toUpperCase() || 'L'}
                                 </div>
                                 <div>
                                     <div className="admin-access-user-name">{user?.name}</div>
-                                    <span className="admin-access-user-role role-admin">👑 Admin</span>
+                                    <span className="admin-access-user-role role-admin" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff' }}>⚡ Team Leader</span>
                                 </div>
                             </div>
 
                             <Link to="/admin" className="admin-access-enter-btn">
-                                <span>Enter Admin Panel</span>
+                                <span>Enter Team Leader Panel</span>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
                                     <path d="M5 12h14" />
                                     <path d="M12 5l7 7-7 7" />
@@ -148,8 +150,8 @@ const AdminAccess = () => {
         );
     }
 
-    // If authenticated but NOT admin, show access denied
-    if (isAuthenticated && user?.role !== 'admin') {
+    // If authenticated but NOT team_leader / admin
+    if (isAuthenticated && user?.role !== 'team_leader' && user?.role !== 'super_admin' && user?.role !== 'admin') {
         return (
             <div className="admin-access-page">
                 <div className="admin-access-bg">
@@ -176,7 +178,7 @@ const AdminAccess = () => {
                             <div className="admin-access-denied-icon">🚫</div>
                             <h3>Access Denied</h3>
                             <p>
-                                You are logged in as <strong>{user?.name}</strong>, but your account does not have administrator privileges. Please contact your system administrator if you believe this is an error.
+                                You are logged in as <strong>{user?.name}</strong>, but your account does not have Team Leader privileges. The Team Leader portal is reserved for team leaders and company administrators. Please contact your administrator.
                             </p>
                             <Link to="/dashboard" className="admin-access-go-dashboard">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -195,6 +197,7 @@ const AdminAccess = () => {
     // Default: Not authenticated - show admin login form
     return (
         <div className="admin-access-page">
+            <ThemeToggle />
             <div className="admin-access-bg">
                 <div className="admin-access-glow admin-access-glow-1"></div>
                 <div className="admin-access-glow admin-access-glow-2"></div>
@@ -228,9 +231,9 @@ const AdminAccess = () => {
                     </div>
 
                     <div className="admin-access-header">
-                        <h1 className="admin-access-title">Admin Portal</h1>
+                        <h1 className="admin-access-title">⚡ Team Leader Portal</h1>
                         <p className="admin-access-subtitle">
-                            Restricted area. Please authenticate with admin credentials to continue.
+                            Team Leader login. Authenticate to manage your project team and tasks.
                         </p>
                         <div className="admin-access-security-badge">
                             🔒 Secure Authentication
@@ -331,7 +334,7 @@ const AdminAccess = () => {
                                 </span>
                             ) : (
                                 <span>
-                                    🛡️ Access Admin Panel
+                                    ⚡ Access Team Leader Panel
                                 </span>
                             )}
                         </button>
@@ -380,7 +383,7 @@ const AdminAccess = () => {
                         <path d="M19 12H5" />
                         <path d="M12 19l-7-7 7-7" />
                     </svg>
-                    Back to User Login
+                    Back to Team Member Login
                 </Link>
             </div>
         </div>

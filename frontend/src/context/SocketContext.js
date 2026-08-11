@@ -70,17 +70,21 @@ export const SocketProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        if (!isAuthenticated || !user) return;
+        const userId = String(user?.id || user?._id || '');
+        if (!userId) return;
 
         const serverUrl = process.env.REACT_APP_API_URL
             ? process.env.REACT_APP_API_URL.replace('/api', '')
             : 'http://localhost:5000';
 
-        const newSocket = io(serverUrl);
+        const newSocket = io(serverUrl, {
+            transports: ['websocket', 'polling'],
+            autoConnect: true
+        });
 
         newSocket.on('connect', () => {
-            console.log('Socket connected');
-            newSocket.emit('join', user.id);
+            console.log('Socket connected successfully:', newSocket.id);
+            newSocket.emit('join', userId);
         });
 
         newSocket.on('notification', (data) => {

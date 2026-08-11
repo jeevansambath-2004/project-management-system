@@ -10,9 +10,9 @@ const {
 } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
 
-// All admin routes require authentication + admin role
+// Admin routes require authentication + admin or team_leader role
 router.use(protect);
-router.use(authorize('admin'));
+router.use(authorize('admin', 'team_leader', 'super_admin'));
 
 // Dashboard stats
 router.get('/stats', getAdminStats);

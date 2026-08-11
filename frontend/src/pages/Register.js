@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 import authService from '../services/authService';
+import ThemeToggle from '../components/ThemeToggle';
 import './Auth.css';
 
 const Register = () => {
@@ -114,6 +115,7 @@ const Register = () => {
 
     return (
         <div className="auth-page">
+            <ThemeToggle />
             <div className="auth-bg">
                 <div className="auth-glow auth-glow-1"></div>
                 <div className="auth-glow auth-glow-2"></div>
@@ -354,8 +356,14 @@ const Register = () => {
                     </p>
 
                     <p className="auth-footer" style={{ marginTop: '12px' }}>
+                        <Link to="/company-login" className="auth-link" style={{ color: '#22c55e', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            🏢 Login as Company Admin
+                        </Link>
+                    </p>
+
+                    <p className="auth-footer" style={{ marginTop: '8px' }}>
                         <Link to="/admin/login" className="auth-link" style={{ color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            🛡️ Login as Admin
+                            ⚡ Team Leader Portal
                         </Link>
                     </p>
                 </div>

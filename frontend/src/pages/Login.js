@@ -2,13 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from '../components/ThemeToggle';
 import './Auth.css';
 
 const Login = () => {
     const [formData, setFormData] = useState({
         email: '',
         password: '',
-        company: '',
     });
     const [showPassword, setShowPassword] = useState(false);
     const { login, googleLogin, loading, error } = useAuth();
@@ -29,8 +29,15 @@ const Login = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await login(formData);
-            navigate('/dashboard');
+            const data = await login(formData);
+            if (data.user.role === 'user') {
+                navigate('/dashboard');
+            } else if (data.user.role === 'admin') {
+                console.error('Admin user attempting to login via member portal');
+                navigate('/company-login');
+            } else if (data.user.role === 'team_leader' || data.user.role === 'super_admin') {
+                navigate('/admin/login');
+            }
         } catch (err) {
             console.error('Login failed:', err);
         }
@@ -45,10 +52,14 @@ const Login = () => {
                 });
                 const userInfo = await userInfoResponse.json();
 
-                const current = stateRef.current;
-                // Pass company if they entered one (in case this creates a new admin account)
-                await googleLogin(tokenResponse.access_token, userInfo, current.formData.company ? current.formData.company.trim() : undefined, undefined);
-                navigate('/dashboard');
+                const data = await googleLogin(tokenResponse.access_token, userInfo);
+                if (data.user.role === 'user') {
+                    navigate('/dashboard');
+                } else if (data.user.role === 'admin') {
+                    navigate('/company-login');
+                } else if (data.user.role === 'team_leader' || data.user.role === 'super_admin') {
+                    navigate('/admin/login');
+                }
             } catch (err) {
                 console.error('Google login failed:', err);
             }
@@ -60,6 +71,7 @@ const Login = () => {
 
     return (
         <div className="auth-page">
+            <ThemeToggle />
             <div className="auth-bg">
                 <div className="auth-glow auth-glow-1"></div>
                 <div className="auth-glow auth-glow-2"></div>
@@ -79,8 +91,8 @@ const Login = () => {
 
                 <div className="auth-card">
                     <div className="auth-header">
-                        <h1 className="auth-title">Welcome back</h1>
-                        <p className="auth-subtitle">Sign in to your account to continue</p>
+                        <h1 className="auth-title">Member Login</h1>
+                        <p className="auth-subtitle">Sign in to your team workspace</p>
                     </div>
 
                     {error && (
@@ -95,19 +107,6 @@ const Login = () => {
                     )}
 
                     <form onSubmit={handleSubmit} className="auth-form">
-                        <div className="form-group">
-                            <label htmlFor="company" className="form-label">Company</label>
-                            <input
-                                type="text"
-                                id="company"
-                                name="company"
-                                value={formData.company}
-                                onChange={handleChange}
-                                className="input"
-                                placeholder="Enter your company name"
-                            />
-                        </div>
-
                         <div className="form-group">
                             <label htmlFor="email" className="form-label">Email</label>
                             <input
@@ -201,8 +200,14 @@ const Login = () => {
                     </p>
 
                     <p className="auth-footer" style={{ marginTop: '12px' }}>
+                        <Link to="/company-login" className="auth-link" style={{ color: '#22c55e', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            🏢 Login as Company Admin
+                        </Link>
+                    </p>
+
+                    <p className="auth-footer" style={{ marginTop: '8px' }}>
                         <Link to="/admin/login" className="auth-link" style={{ color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            🛡️ Login as Admin
+                            ⚡ Team Leader Portal
                         </Link>
                     </p>
                 </div>

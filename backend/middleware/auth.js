@@ -28,6 +28,8 @@ exports.protect = async (req, res, next) => {
 
 exports.authorize = (...roles) => {
     return (req, res, next) => {
+        // Company admin and super_admin have access to everything
+        if (req.user.role === 'admin' || req.user.role === 'super_admin') return next();
         if (!roles.includes(req.user.role)) {
             return res.status(403).json({
                 message: `User role ${req.user.role} is not authorized to access this route`
@@ -55,9 +57,16 @@ exports.authorizeProjectRole = (...allowedRoles) => {
                 return res.status(404).json({ message: 'Project not found' });
             }
 
-            // System admin can always access
-            if (req.user.role === 'admin') {
+            // Company admin can always access & supervise
+            if (req.user.role === 'admin' || req.user.role === 'super_admin') {
                 req.projectRole = 'admin';
+                req.project = project;
+                return next();
+            }
+
+            // Team leader can always access & lead
+            if (req.user.role === 'team_leader') {
+                req.projectRole = 'team_leader';
                 req.project = project;
                 return next();
             }

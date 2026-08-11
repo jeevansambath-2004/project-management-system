@@ -1,4 +1,5 @@
 const Project = require('../models/Project');
+const { Conversation } = require('../models/Message');
 
 // @desc    Get all projects for user
 // @route   GET /api/projects
@@ -44,6 +45,12 @@ exports.createProject = async (req, res) => {
     try {
         req.body.owner = req.user.id;
         const project = await Project.create(req.body);
+
+        // Auto-create project conversation
+        await Conversation.create({
+            project: project._id,
+            participants: [req.user.id]
+        });
 
         const populatedProject = await Project.findById(project._id)
             .populate('owner', 'name email avatar');
@@ -121,6 +128,18 @@ exports.addMember = async (req, res) => {
 
         project.members.push({ user: userId, role });
         await project.save();
+
+        // Update project conversation participants
+        let conv = await Conversation.findOne({ project: project._id });
+        if (conv) {
+            if (!conv.participants.some(p => p.toString() === userId.toString())) {
+                conv.participants.push(userId);
+                await conv.save();
+            }
+        } else {
+            const allParticipants = [project.owner.toString(), ...project.members.map(m => m.user.toString())];
+            await Conversation.create({ project: project._id, participants: allParticipants });
+        }
 
         const updatedProject = await Project.findById(req.params.id)
             .populate('members.user', 'name email avatar');
@@ -315,6 +334,18 @@ exports.joinProject = async (req, res) => {
         // Add user as member
         project.members.push({ user: req.user.id, role: 'member' });
         await project.save();
+
+        // Update project conversation participants
+        let conv = await Conversation.findOne({ project: project._id });
+        if (conv) {
+            if (!conv.participants.some(p => p.toString() === req.user.id.toString())) {
+                conv.participants.push(req.user.id);
+                await conv.save();
+            }
+        } else {
+            const allParticipants = [project.owner.toString(), ...project.members.map(m => m.user.toString())];
+            await Conversation.create({ project: project._id, participants: allParticipants });
+        }
 
         const updatedProject = await Project.findById(project._id)
             .populate('owner', 'name email avatar')

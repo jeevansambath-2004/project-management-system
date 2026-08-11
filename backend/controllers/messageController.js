@@ -5,8 +5,42 @@ const Project = require('../models/Project');
 // @route   GET /api/messages/conversations
 exports.getConversations = async (req, res) => {
     try {
+        const userId = req.user.id;
+
+        // 1. Find all projects where current user is owner or member
+        const userProjects = await Project.find({
+            $or: [
+                { owner: userId },
+                { 'members.user': userId }
+            ]
+        });
+
+        // 2. Auto-sync project Conversations to ensure user & members are in participants
+        for (const proj of userProjects) {
+            const allMemberIds = [
+                proj.owner.toString(),
+                ...proj.members.map(m => m.user ? m.user.toString() : null).filter(Boolean)
+            ];
+
+            let conv = await Conversation.findOne({ project: proj._id });
+            if (!conv) {
+                await Conversation.create({
+                    project: proj._id,
+                    participants: allMemberIds
+                });
+            } else {
+                const currentParticipants = conv.participants.map(p => p.toString());
+                const missingMembers = allMemberIds.filter(id => !currentParticipants.includes(id));
+                if (missingMembers.length > 0) {
+                    conv.participants.push(...missingMembers);
+                    await conv.save();
+                }
+            }
+        }
+
+        // 3. Return all conversations for the user
         const conversations = await Conversation.find({
-            participants: req.user.id
+            participants: userId
         })
             .populate('participants', 'name email avatar')
             .populate('lastMessage')
@@ -18,6 +52,7 @@ exports.getConversations = async (req, res) => {
 
         res.json({ success: true, data: conversations });
     } catch (error) {
+        console.error('Error fetching conversations:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
@@ -66,13 +101,24 @@ exports.sendMessage = async (req, res) => {
         const conv = await Conversation.findById(req.params.conversationId);
         if (conv && req.app.get('io')) {
             const io = req.app.get('io');
+            const senderName = populatedMessage.sender?.name || 'Someone';
+            const messagePreview = content
+                ? (content.length > 60 ? content.substring(0, 60) + '...' : content)
+                : (attachment ? '📎 Attachment' : '📊 Poll');
+
             conv.participants.forEach(p => {
-                if (p.toString() !== req.user.id) {
-                    io.to(p.toString()).emit('notification', {
+                const participantId = p.toString();
+                if (participantId !== req.user.id.toString()) {
+                    io.to(participantId).emit('notification', {
                         type: 'message',
-                        title: 'New Message',
-                        body: `You received a new message from ${populatedMessage.sender.name}`,
-                        link: '/messages'
+                        title: `Message from ${senderName}`,
+                        body: messagePreview,
+                        link: `/messages?conv=${req.params.conversationId}`
+                    });
+
+                    io.to(participantId).emit('new_message', {
+                        conversationId: req.params.conversationId,
+                        message: populatedMessage
                     });
                 }
             });
@@ -119,15 +165,30 @@ exports.startConversation = async (req, res) => {
             .populate('participants', 'name email avatar')
             .populate('lastMessage');
 
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'name email avatar')
+            .populate('attachment');
+
         // Notify recipient
         if (req.app.get('io')) {
             const io = req.app.get('io');
-            const sender = populatedConversation.participants.find(p => p._id.toString() === req.user.id);
-            io.to(recipientId.toString()).emit('notification', {
+            const sender = populatedConversation.participants.find(p => p._id.toString() === req.user.id.toString());
+            const recipientStr = recipientId.toString();
+            const senderName = sender ? sender.name : 'Someone';
+            const messagePreview = content
+                ? (content.length > 60 ? content.substring(0, 60) + '...' : content)
+                : (attachment ? '📎 Attachment' : '📊 Poll');
+
+            io.to(recipientStr).emit('notification', {
                 type: 'message',
-                title: 'New Conversation',
-                body: `${sender ? sender.name : 'Someone'} sent you a message`,
-                link: '/messages'
+                title: `New Message from ${senderName}`,
+                body: messagePreview,
+                link: `/messages?conv=${conversation._id}`
+            });
+
+            io.to(recipientStr).emit('new_message', {
+                conversationId: conversation._id.toString(),
+                message: populatedMessage
             });
         }
 
@@ -274,6 +335,18 @@ exports.votePoll = async (req, res) => {
             .populate('sender', 'name email avatar')
             .populate('attachment');
 
+        // Notify participants of updated poll/message
+        const conv = await Conversation.findById(message.conversation);
+        if (conv && req.app.get('io')) {
+            const io = req.app.get('io');
+            conv.participants.forEach(p => {
+                io.to(p.toString()).emit('message_updated', {
+                    conversationId: message.conversation.toString(),
+                    message: populatedMessage
+                });
+            });
+        }
+
         res.json({ success: true, data: populatedMessage });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -324,6 +397,18 @@ exports.toggleReaction = async (req, res) => {
         const populatedMessage = await Message.findById(message._id)
             .populate('sender', 'name email avatar')
             .populate('attachment');
+
+        // Notify participants of updated reactions
+        const conv = await Conversation.findById(message.conversation);
+        if (conv && req.app.get('io')) {
+            const io = req.app.get('io');
+            conv.participants.forEach(p => {
+                io.to(p.toString()).emit('message_updated', {
+                    conversationId: message.conversation.toString(),
+                    message: populatedMessage
+                });
+            });
+        }
 
         res.json({ success: true, data: populatedMessage });
     } catch (error) {

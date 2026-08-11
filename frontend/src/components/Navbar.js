@@ -40,11 +40,14 @@ const Navbar = () => {
                             <Link to="/productivity" className="navbar-link">Productivity</Link>
                             <Link to="/messages" className="navbar-link">Messages</Link>
                             {user?.role === 'admin' && (
-                                <>
-                                    <Link to="/admin" className="navbar-link" style={{ color: '#f59e0b' }}>
-                                        👑 Admin
-                                    </Link>
-                                </>
+                                <Link to="/admin" className="navbar-link" style={{ color: '#22c55e', fontWeight: 'bold' }}>
+                                    🏢 Company Admin
+                                </Link>
+                            )}
+                            {(user?.role === 'team_leader' || user?.role === 'super_admin') && (
+                                <Link to="/admin" className="navbar-link" style={{ color: '#f59e0b', fontWeight: 'bold' }}>
+                                    ⚡ Team Leader
+                                </Link>
                             )}
                             <Link to="/feedback" className="navbar-link">Feedback</Link>
                         </>
@@ -120,10 +123,13 @@ const Navbar = () => {
                                     <span className="navbar-company">{user?.company || ''}</span>
                                 </div>
                                 {user?.role === 'admin' && (
-                                    <span className="navbar-role-badge admin-badge">Admin</span>
+                                    <span className="navbar-role-badge admin-badge">Company Admin</span>
+                                )}
+                                {(user?.role === 'team_leader' || user?.role === 'super_admin') && (
+                                    <span className="navbar-role-badge super-admin-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff' }}>Team Leader</span>
                                 )}
                                 {user?.role === 'user' && (
-                                    <span className="navbar-role-badge member-badge">Member</span>
+                                    <span className="navbar-role-badge member-badge">Team Member</span>
                                 )}
                             </Link>
                             <button onClick={handleLogout} className="btn btn-ghost">

@@ -427,8 +427,9 @@ const AdminPanel = () => {
                             onChange={(e) => setUserRoleFilter(e.target.value)}
                         >
                             <option value="">All Roles</option>
-                            <option value="user">Users</option>
-                            <option value="admin">Admins</option>
+                            <option value="user">Team Members</option>
+                            <option value="team_leader">Team Leaders</option>
+                            <option value="admin">Company Admins</option>
                         </select>
                     </div>
                 </div>
@@ -475,7 +476,8 @@ const AdminPanel = () => {
                                     </td>
                                     <td>
                                         <span className={`role-badge role-${u.role}`}>
-                                            {u.role === 'admin' ? '⚡' : '👤'} {u.role}
+                                            {u.role === 'admin' ? '🏢' : (u.role === 'team_leader' || u.role === 'super_admin') ? '⚡' : '👤'}{' '}
+                                            {u.role === 'admin' ? 'Company Admin' : (u.role === 'team_leader' || u.role === 'super_admin') ? 'Team Leader' : 'Team Member'}
                                         </span>
                                     </td>
                                     <td>
@@ -489,23 +491,25 @@ const AdminPanel = () => {
                                     <td>
                                         {u._id !== user?.id ? (
                                             <div className="admin-actions">
-                                                {u.role === 'user' ? (
-                                                    <button
-                                                        className="admin-action-btn promote-btn"
-                                                        title="Promote to Admin"
-                                                        onClick={() => handleUpdateRole(u._id, 'admin')}
-                                                    >
-                                                        ⬆️
-                                                    </button>
-                                                ) : (
-                                                    <button
-                                                        className="admin-action-btn demote-btn"
-                                                        title="Demote to User"
-                                                        onClick={() => handleUpdateRole(u._id, 'user')}
-                                                    >
-                                                        ⬇️
-                                                    </button>
-                                                )}
+                                                <select
+                                                    className="role-select"
+                                                    value={u.role === 'super_admin' ? 'team_leader' : u.role}
+                                                    title="Change Role"
+                                                    onChange={(e) => handleUpdateRole(u._id, e.target.value)}
+                                                    style={{
+                                                        fontSize: '12px',
+                                                        padding: '4px 8px',
+                                                        borderRadius: '6px',
+                                                        border: '1px solid var(--border-color)',
+                                                        background: 'var(--bg-secondary)',
+                                                        color: 'var(--text-primary)',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <option value="user">👤 Team Member</option>
+                                                    <option value="team_leader">⚡ Team Leader</option>
+                                                    <option value="admin">🏢 Company Admin</option>
+                                                </select>
                                                 <button
                                                     className="admin-action-btn delete-btn"
                                                     title="Delete User"
@@ -932,15 +936,15 @@ const AdminPanel = () => {
                     <div className="admin-header">
                         <div className="admin-header-left">
                             <h1>
-                                <span className="admin-crown">👑</span>
-                                Admin Panel
+                                <span className="admin-crown">{user?.role === 'admin' ? '🏢' : '⚡'}</span>
+                                {user?.role === 'admin' ? 'Company Admin Supervision Panel' : 'Team Leader Panel'}
                             </h1>
                             <p className="admin-subtitle">
                                 Manage users, projects, and monitor system activity
                             </p>
                         </div>
                         <div className="admin-badge">
-                            🛡️ Super Admin — {user?.name}
+                            {user?.role === 'admin' ? '🏢 Company Admin' : '⚡ Team Leader'} — {user?.name}
                         </div>
                     </div>
 
@@ -975,10 +979,17 @@ const AdminPanel = () => {
                                     </div>
                                 </div>
                                 <div className="admin-stat-card stat-admins">
-                                    <div className="admin-stat-icon admins-icon">🛡️</div>
+                                    <div className="admin-stat-icon admins-icon">🏢</div>
                                     <div className="admin-stat-info">
                                         <div className="admin-stat-value">{stats?.adminCount || 0}</div>
-                                        <div className="admin-stat-label">Admins</div>
+                                        <div className="admin-stat-label">Company Admins</div>
+                                    </div>
+                                </div>
+                                <div className="admin-stat-card stat-admins" style={{ borderTop: '3px solid #f59e0b' }}>
+                                    <div className="admin-stat-icon" style={{ background: 'rgba(245,158,11,0.15)' }}>⚡</div>
+                                    <div className="admin-stat-info">
+                                        <div className="admin-stat-value">{stats?.teamLeaderCount || stats?.superAdminCount || 0}</div>
+                                        <div className="admin-stat-label">Team Leaders</div>
                                     </div>
                                 </div>
                             </div>

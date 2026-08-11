@@ -4,14 +4,17 @@ import Navbar from '../components/Navbar';
 import messageService from '../services/messageService';
 import fileService from '../services/fileService';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import './Messages.css';
 
 const COMMON_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏', '🎉', '✅', '❌'];
 
 const Messages = () => {
     const { user: currentUser } = useAuth();
+    const { socket } = useSocket();
     const [searchParams] = useSearchParams();
     const projectId = searchParams.get('project');
+    const targetConvId = searchParams.get('conv');
 
     const [conversations, setConversations] = useState([]);
     const [messages, setMessages] = useState([]);
@@ -37,9 +40,9 @@ const Messages = () => {
         fetchConversations();
     }, []);
 
-    // Handle project query param
+    // Handle project query param or conv query param
     useEffect(() => {
-        const initProjectChat = async () => {
+        const initChat = async () => {
             if (projectId) {
                 try {
                     const res = await messageService.getProjectConversation(projectId);
@@ -50,13 +53,57 @@ const Messages = () => {
                 } catch (error) {
                     console.error('Error getting project conversation:', error);
                 }
+            } else if (targetConvId && conversations.length > 0) {
+                const target = conversations.find(c => String(c._id) === String(targetConvId));
+                if (target) {
+                    setSelectedConversation(target);
+                    fetchMessages(target._id);
+                }
             }
         };
 
-        if (projectId && !loading) {
-            initProjectChat();
+        if (!loading) {
+            initChat();
         }
-    }, [projectId, loading]);
+    }, [projectId, targetConvId, loading, conversations]);
+
+    // Real-time socket events for messages
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleNewMessage = (data) => {
+            if (selectedConversation && String(data.conversationId) === String(selectedConversation._id)) {
+                fetchMessages(selectedConversation._id, true);
+            }
+            fetchConversations(true);
+        };
+
+        const handleMessageUpdated = (data) => {
+            if (selectedConversation && String(data.conversationId) === String(selectedConversation._id)) {
+                fetchMessages(selectedConversation._id, true);
+            }
+        };
+
+        socket.on('new_message', handleNewMessage);
+        socket.on('message_updated', handleMessageUpdated);
+
+        return () => {
+            socket.off('new_message', handleNewMessage);
+            socket.off('message_updated', handleMessageUpdated);
+        };
+    }, [socket, selectedConversation]);
+
+    // Background automatic polling (every 3 seconds) for instant message updates
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetchConversations(true);
+            if (selectedConversation?._id) {
+                fetchMessages(selectedConversation._id, true);
+            }
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, [selectedConversation]);
 
     // Scroll to bottom when messages change
     useEffect(() => {
@@ -77,9 +124,9 @@ const Messages = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const fetchConversations = async () => {
+    const fetchConversations = async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const res = await messageService.getConversations();
             if (res.success) {
                 setConversations(res.data);
@@ -87,13 +134,13 @@ const Messages = () => {
         } catch (error) {
             console.error('Error fetching conversations:', error);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
-    const fetchMessages = async (conversationId) => {
+    const fetchMessages = async (conversationId, silent = false) => {
         try {
-            setMessagesLoading(true);
+            if (!silent) setMessagesLoading(true);
             const res = await messageService.getMessages(conversationId);
             if (res.success) {
                 setMessages(res.data);
@@ -101,7 +148,7 @@ const Messages = () => {
         } catch (error) {
             console.error('Error fetching messages:', error);
         } finally {
-            setMessagesLoading(false);
+            if (!silent) setMessagesLoading(false);
         }
     };
 
