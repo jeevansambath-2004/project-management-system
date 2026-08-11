@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
@@ -20,8 +20,15 @@ const Register = () => {
     const [companyPreview, setCompanyPreview] = useState(null);
     const [codeChecking, setCodeChecking] = useState(false);
     const [codeError, setCodeError] = useState('');
+    const [googleError, setGoogleError] = useState('');
     const { register, googleLogin, loading, error } = useAuth();
     const navigate = useNavigate();
+
+    // Use a ref to store the latest mode and formData to avoid closure staleness in useGoogleLogin
+    const stateRef = useRef({ mode, formData, companyPreview });
+    useEffect(() => {
+        stateRef.current = { mode, formData, companyPreview };
+    }, [mode, formData, companyPreview]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -81,23 +88,28 @@ const Register = () => {
 
     const handleGoogleRegister = useGoogleLogin({
         onSuccess: async (tokenResponse) => {
+            setGoogleError('');
             try {
                 const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                     headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
                 });
                 const userInfo = await userInfoResponse.json();
+                
+                const current = stateRef.current;
                 await googleLogin(
                     tokenResponse.access_token,
                     userInfo,
-                    mode === 'create' ? formData.company || 'My Company' : undefined,
-                    mode === 'join' ? formData.companyCode : undefined
+                    current.mode === 'create' ? current.formData.company || 'My Company' : undefined,
+                    current.mode === 'join' ? current.formData.companyCode : undefined
                 );
                 navigate('/dashboard');
             } catch (err) {
+                const msg = err.response?.data?.message || 'Google sign up failed. Please try again.';
+                setGoogleError(msg);
                 console.error('Google signup failed:', err);
             }
         },
-        onError: () => console.error('Google signup failed')
+        onError: () => setGoogleError('Google sign in was cancelled or failed.')
     });
 
     return (
@@ -151,14 +163,14 @@ const Register = () => {
                         )}
                     </div>
 
-                    {error && (
+                    {(error || googleError) && (
                         <div className="auth-error">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <circle cx="12" cy="12" r="10" />
                                 <line x1="12" y1="8" x2="12" y2="12" />
                                 <line x1="12" y1="16" x2="12.01" y2="16" />
                             </svg>
-                            <span>{error}</span>
+                            <span>{googleError || error}</span>
                         </div>
                     )}
 
@@ -314,7 +326,17 @@ const Register = () => {
                         <button
                             type="button"
                             className="btn btn-google btn-lg"
-                            onClick={() => handleGoogleRegister()}
+                            onClick={() => {
+                                if (mode === 'create' && !formData.company.trim()) {
+                                    alert("Please enter a Company Name before continuing with Google.");
+                                    return;
+                                }
+                                if (mode === 'join' && !companyPreview) {
+                                    alert("Please enter and verify a valid Company Secret Code before continuing with Google.");
+                                    return;
+                                }
+                                handleGoogleRegister();
+                            }}
                             disabled={loading}
                         >
                             <svg viewBox="0 0 24 24" width="20" height="20">

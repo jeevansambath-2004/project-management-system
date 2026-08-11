@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +13,11 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const { login, googleLogin, loading, error } = useAuth();
     const navigate = useNavigate();
+
+    const stateRef = useRef({ formData });
+    useEffect(() => {
+        stateRef.current = { formData };
+    }, [formData]);
 
     const handleChange = (e) => {
         setFormData({
@@ -40,8 +45,9 @@ const Login = () => {
                 });
                 const userInfo = await userInfoResponse.json();
 
-                // Create a mock credential with user info for our backend
-                await googleLogin(tokenResponse.access_token, userInfo);
+                const current = stateRef.current;
+                // Pass company if they entered one (in case this creates a new admin account)
+                await googleLogin(tokenResponse.access_token, userInfo, current.formData.company ? current.formData.company.trim() : undefined, undefined);
                 navigate('/dashboard');
             } catch (err) {
                 console.error('Google login failed:', err);

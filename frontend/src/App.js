@@ -4,6 +4,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import AppRoutes from './routes/AppRoutes';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { SocketProvider } from './context/SocketContext';
 import './styles/App.css';
 
 const GOOGLE_CLIENT_ID = '771392019076-hoh90f3tfqlqmm7uhvn227cne3n74883.apps.googleusercontent.com';
@@ -13,11 +14,13 @@ function App() {
         <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
             <AuthProvider>
                 <ThemeProvider>
-                    <Router>
-                        <div className="app">
-                            <AppRoutes />
-                        </div>
-                    </Router>
+                    <SocketProvider>
+                        <Router>
+                            <div className="app">
+                                <AppRoutes />
+                            </div>
+                        </Router>
+                    </SocketProvider>
                 </ThemeProvider>
             </AuthProvider>
         </GoogleOAuthProvider>

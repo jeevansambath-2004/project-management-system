@@ -125,6 +125,15 @@ exports.addMember = async (req, res) => {
         const updatedProject = await Project.findById(req.params.id)
             .populate('members.user', 'name email avatar');
 
+        if (req.app.get('io') && userId !== req.user.id) {
+            req.app.get('io').to(userId.toString()).emit('notification', {
+                type: 'project',
+                title: 'Added to Project',
+                body: `You have been added to the project: ${project.name}`,
+                link: '/projects'
+            });
+        }
+
         res.json({ success: true, data: updatedProject });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });

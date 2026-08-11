@@ -57,6 +57,15 @@ exports.register = async (req, res) => {
             companyRecord = newCompany;
         }
 
+        if (userRole !== 'admin' && companyRecord && req.app.get('io')) {
+            req.app.get('io').to(companyRecord.admin.toString()).emit('notification', {
+                type: 'user_joined',
+                title: 'New Team Member',
+                body: `${user.name} joined your company workspace`,
+                link: '/admin'
+            });
+        }
+
         // Generate token
         const token = user.getSignedJwtToken();
 
@@ -159,6 +168,18 @@ exports.googleAuth = async (req, res) => {
         let user = await User.findOne({ $or: [{ googleId }, { email }] });
 
         if (user) {
+            // If trying to register (companyCode or company provided), block - user already exists
+            if (companyCode || company) {
+                if (user.role === 'admin') {
+                    return res.status(400).json({
+                        message: 'This Google account is already registered as an Admin. Please use the Admin Login page to sign in.'
+                    });
+                }
+                return res.status(400).json({
+                    message: 'This Google account is already registered as a Team Member. Please use the Login page to sign in.'
+                });
+            }
+
             // If user exists with email but no googleId (local account), link it
             if (!user.googleId) {
                 user.googleId = googleId;
@@ -173,10 +194,16 @@ exports.googleAuth = async (req, res) => {
             let userRole = 'user';
 
             if (companyCode) {
+                // Joining existing company via secret code
                 companyRecord = await Company.findOne({ secretCode: companyCode.trim().toUpperCase() });
                 if (companyRecord) {
                     companyName = companyRecord.name;
+                    userRole = 'user';
                 }
+            } else if (company) {
+                // Creating a new company (admin registration)
+                companyName = company;
+                userRole = 'admin';
             }
 
             // Create new user via Google sign-up
@@ -190,6 +217,27 @@ exports.googleAuth = async (req, res) => {
                 role: userRole,
                 authProvider: 'google'
             });
+
+            // If admin, create the company record with this user as admin
+            if (userRole === 'admin') {
+                const newCompany = await Company.create({
+                    name: companyName,
+                    admin: user._id
+                });
+                // Link company back to user
+                user.companyId = newCompany._id;
+                await user.save();
+                companyRecord = newCompany;
+            }
+
+            if (userRole !== 'admin' && companyRecord && req.app.get('io')) {
+                req.app.get('io').to(companyRecord.admin.toString()).emit('notification', {
+                    type: 'user_joined',
+                    title: 'New Team Member',
+                    body: `${user.name} joined your company workspace via Google`,
+                    link: '/admin'
+                });
+            }
         }
 
         // Fetch company code if admin

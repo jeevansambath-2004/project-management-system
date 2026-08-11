@@ -62,6 +62,22 @@ exports.sendMessage = async (req, res) => {
             .populate('sender', 'name email avatar')
             .populate('attachment');
 
+        // Notify participants
+        const conv = await Conversation.findById(req.params.conversationId);
+        if (conv && req.app.get('io')) {
+            const io = req.app.get('io');
+            conv.participants.forEach(p => {
+                if (p.toString() !== req.user.id) {
+                    io.to(p.toString()).emit('notification', {
+                        type: 'message',
+                        title: 'New Message',
+                        body: `You received a new message from ${populatedMessage.sender.name}`,
+                        link: '/messages'
+                    });
+                }
+            });
+        }
+
         res.status(201).json({ success: true, data: populatedMessage });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -102,6 +118,18 @@ exports.startConversation = async (req, res) => {
         const populatedConversation = await Conversation.findById(conversation._id)
             .populate('participants', 'name email avatar')
             .populate('lastMessage');
+
+        // Notify recipient
+        if (req.app.get('io')) {
+            const io = req.app.get('io');
+            const sender = populatedConversation.participants.find(p => p._id.toString() === req.user.id);
+            io.to(recipientId.toString()).emit('notification', {
+                type: 'message',
+                title: 'New Conversation',
+                body: `${sender ? sender.name : 'Someone'} sent you a message`,
+                link: '/messages'
+            });
+        }
 
         res.status(201).json({ success: true, data: populatedConversation });
     } catch (error) {

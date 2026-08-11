@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import { useAuth } from '../context/AuthContext';
 import './Home.css';
 
 const Home = () => {
+    const { isAuthenticated } = useAuth();
     const [feedbackForm, setFeedbackForm] = useState({ name: '', email: '', rating: 5, message: '' });
     const [feedbackStatus, setFeedbackStatus] = useState(null);
 
@@ -125,16 +127,23 @@ const Home = () => {
                     </p>
 
                     <div className="hero-actions">
-                        <Link to="/register" className="btn btn-primary btn-lg">
-                            Start Free Trial
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-                                <path d="M5 12h14" />
-                                <path d="M12 5l7 7-7 7" />
-                            </svg>
-                        </Link>
-                        <Link to="/login" className="btn btn-secondary btn-lg">
-                            View Demo
-                        </Link>
+                        {isAuthenticated ? (
+                            <Link to="/dashboard" className="btn btn-primary btn-lg">
+                                Go to Dashboard
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                    <path d="M5 12h14" />
+                                    <path d="M12 5l7 7-7 7" />
+                                </svg>
+                            </Link>
+                        ) : (
+                            <Link to="/register" className="btn btn-primary btn-lg">
+                                Start
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                    <path d="M5 12h14" />
+                                    <path d="M12 5l7 7-7 7" />
+                                </svg>
+                            </Link>
+                        )}
                     </div>
 
                     <div className="hero-stats">
@@ -232,8 +241,8 @@ const Home = () => {
                                     Advanced analytics
                                 </li>
                             </ul>
-                            <Link to="/register" className="btn btn-secondary btn-lg pricing-btn">
-                                Get Started Free
+                            <Link to={isAuthenticated ? "/dashboard" : "/register"} className="btn btn-secondary btn-lg pricing-btn">
+                                {isAuthenticated ? 'Go to Dashboard' : 'Get Started Free'}
                             </Link>
                         </div>
 
@@ -286,8 +295,8 @@ const Home = () => {
                                     Priority support
                                 </li>
                             </ul>
-                            <Link to="/register" className="btn btn-primary btn-lg pricing-btn">
-                                Start Pro Trial
+                            <Link to={isAuthenticated ? "/dashboard" : "/register"} className="btn btn-primary btn-lg pricing-btn">
+                                {isAuthenticated ? 'Go to Dashboard' : 'Start'}
                             </Link>
                         </div>
 
@@ -529,9 +538,15 @@ const Home = () => {
                             Join thousands of teams already using ProjectFlow to deliver amazing results.
                         </p>
                         <div className="cta-actions">
-                            <Link to="/register" className="btn btn-primary btn-lg">
-                                Start Your Free Trial
-                            </Link>
+                            {isAuthenticated ? (
+                                <Link to="/dashboard" className="btn btn-primary btn-lg">
+                                    Go to Dashboard
+                                </Link>
+                            ) : (
+                                <Link to="/register" className="btn btn-primary btn-lg">
+                                    Start
+                                </Link>
+                            )}
                             <a href="#contact" className="btn btn-ghost btn-lg">
                                 Contact Sales
                             </a>

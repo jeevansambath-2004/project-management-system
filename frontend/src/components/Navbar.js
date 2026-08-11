@@ -2,11 +2,14 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useSocket } from '../context/SocketContext';
 import './Navbar.css';
 
 const Navbar = () => {
     const { user, isAuthenticated, logout } = useAuth();
     const { theme, toggleTheme } = useTheme();
+    const { notifications, markAsRead, markAllAsRead } = useSocket() || { notifications: [] };
+    const [showNotifications, setShowNotifications] = React.useState(false);
     const navigate = useNavigate();
 
     const handleLogout = () => {
@@ -61,6 +64,53 @@ const Navbar = () => {
                     </button>
                     {isAuthenticated ? (
                         <>
+                            <div className="navbar-notification">
+                                <button 
+                                    className="btn btn-ghost notification-bell" 
+                                    onClick={() => setShowNotifications(!showNotifications)}
+                                    aria-label="Notifications"
+                                >
+                                    🔔
+                                    {notifications?.filter(n => !n.isRead).length > 0 && (
+                                        <span className="notification-badge">
+                                            {notifications.filter(n => !n.isRead).length}
+                                        </span>
+                                    )}
+                                </button>
+                                {showNotifications && (
+                                    <div className="notification-dropdown">
+                                        <div className="notification-header">
+                                            <h4>Notifications</h4>
+                                            {notifications?.filter(n => !n.isRead).length > 0 && (
+                                                <button onClick={markAllAsRead} className="btn-mark-all">Mark all as read</button>
+                                            )}
+                                        </div>
+                                        <div className="notification-list">
+                                            {notifications?.length === 0 ? (
+                                                <div className="notification-empty">No new notifications</div>
+                                            ) : (
+                                                notifications?.map(notif => (
+                                                    <div 
+                                                        key={notif.id} 
+                                                        className={`notification-item ${notif.isRead ? 'read' : 'unread'}`}
+                                                        onClick={() => {
+                                                            markAsRead(notif.id);
+                                                            if (notif.link) {
+                                                                navigate(notif.link);
+                                                                setShowNotifications(false);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className="notification-title">{notif.title}</div>
+                                                        <div className="notification-body">{notif.body}</div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <Link to="/profile" className="navbar-user">
                                 <div className="navbar-avatar">
                                     {user?.name?.charAt(0).toUpperCase() || 'U'}

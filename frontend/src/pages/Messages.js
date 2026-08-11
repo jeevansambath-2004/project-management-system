@@ -227,8 +227,8 @@ const Messages = () => {
     };
 
     const getMemberColor = (id) => {
-        if (!id) return '#6b7280';
-        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#ff8484', '#f97316', '#eab308', '#22c55e', '#14b8a6'];
+        if (!id) return '#64748b';
+        const colors = ['#0d9488', '#2563eb', '#8b5cf6', '#d946ef', '#f59e0b', '#10b981', '#6366f1'];
         let hash = 0;
         const strId = id.toString();
         for (let i = 0; i < strId.length; i++) {
@@ -260,7 +260,9 @@ const Messages = () => {
                 <div className={`messages-sidebar ${selectedConversation ? 'mobile-hidden' : ''}`}>
                     <div className="sidebar-header">
                         <h2>Messages</h2>
-                        <button className="btn-icon" title="New Message">✏️</button>
+                        <div className="sidebar-actions">
+                            <span className="sidebar-badge">{conversations.length}</span>
+                        </div>
                     </div>
                     {loading ? (
                         <div className="loading-spinner">Loading...</div>
@@ -562,10 +564,14 @@ const Messages = () => {
                             </div>
                         </>
                     ) : (
-                        <div className="no-chat-selected">
-                            <div className="empty-state-icon">💬</div>
-                            <h3>Select a conversation</h3>
-                            <p>Choose a chat from the sidebar or start a new one.</p>
+                        <div className="chat-empty">
+                            <div className="chat-empty-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, color: 'var(--primary-400)' }}>
+                                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                                </svg>
+                            </div>
+                            <h3>Your Messages</h3>
+                            <p>Select a conversation from the sidebar to start chatting.</p>
                         </div>
                     )}
                 </div>

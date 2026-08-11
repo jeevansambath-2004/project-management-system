@@ -91,6 +91,15 @@ exports.createTask = async (req, res) => {
             .populate('assignee', 'name email avatar')
             .populate('createdBy', 'name email');
 
+        if (req.app.get('io') && populatedTask.assignee && populatedTask.assignee._id.toString() !== req.user.id) {
+            req.app.get('io').to(populatedTask.assignee._id.toString()).emit('notification', {
+                type: 'task',
+                title: 'New Task Assigned',
+                body: `You have been assigned to a new task: ${populatedTask.title}`,
+                link: '/tasks'
+            });
+        }
+
         res.status(201).json({ success: true, data: populatedTask });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -253,6 +262,24 @@ exports.updateTaskStatus = async (req, res) => {
                 .populate('assignee', 'name email avatar')
                 .populate('approvalRequestedBy', 'name email avatar');
 
+            if (req.app.get('io')) {
+                const admins = [project.owner.toString()];
+                project.members.forEach(m => {
+                    if (m.role === 'admin') admins.push(m.user.toString());
+                });
+                
+                admins.forEach(adminId => {
+                    if (adminId !== req.user.id) {
+                        req.app.get('io').to(adminId).emit('notification', {
+                            type: 'task_request',
+                            title: 'Task Stage Change Request',
+                            body: `${task.approvalRequestedBy.name} requested to move "${task.title}" to ${status}`,
+                            link: '/tasks'
+                        });
+                    }
+                });
+            }
+
             return res.json({
                 success: true,
                 data: task,
@@ -297,6 +324,25 @@ exports.requestStageChange = async (req, res) => {
         }, { new: true })
             .populate('assignee', 'name email avatar')
             .populate('approvalRequestedBy', 'name email avatar');
+
+        const projectObj = await Project.findById(task.project);
+        if (projectObj && req.app.get('io')) {
+            const admins = [projectObj.owner.toString()];
+            projectObj.members.forEach(m => {
+                if (m.role === 'admin') admins.push(m.user.toString());
+            });
+            
+            admins.forEach(adminId => {
+                if (adminId !== req.user.id) {
+                    req.app.get('io').to(adminId).emit('notification', {
+                        type: 'task_request',
+                        title: 'Task Stage Change Request',
+                        body: `${task.approvalRequestedBy.name} requested to move "${task.title}" to ${requestedStatus}`,
+                        link: '/tasks'
+                    });
+                }
+            });
+        }
 
         res.json({
             success: true,
@@ -447,6 +493,15 @@ exports.assignTask = async (req, res) => {
             { assignee: req.body.userId },
             { new: true }
         ).populate('assignee', 'name email avatar');
+
+        if (req.app.get('io') && req.body.userId && req.body.userId !== req.user.id) {
+            req.app.get('io').to(req.body.userId.toString()).emit('notification', {
+                type: 'task',
+                title: 'Task Assigned',
+                body: `You have been assigned to task: ${task.title}`,
+                link: '/tasks'
+            });
+        }
 
         res.json({ success: true, data: task });
     } catch (error) {
